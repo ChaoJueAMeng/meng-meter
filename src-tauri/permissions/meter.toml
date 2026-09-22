@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-meter-commands"
+description = "允许悬浮球读取系统状态并控制贴边窗口"
+commands.allow = ["get_stats", "get_cpu_temp", "get_mode", "begin_drag", "set_hover"]

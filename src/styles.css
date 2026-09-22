@@ -1,0 +1,209 @@
+:root {
+  --accent: #22c55e;
+  --cream: #fff4e4;
+  --cream-2: #fde6c4;
+  --ink: #2a241c;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#widget {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+#widget:active {
+  cursor: grabbing;
+}
+
+#pill {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--cream) 0%, var(--cream-2) 100%);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  opacity: 1;
+  transition: opacity 160ms ease;
+}
+
+.ring-wrap {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+}
+
+.ring-wrap svg {
+  width: 46px;
+  height: 46px;
+  transform: rotate(-90deg);
+}
+
+.ring-bg,
+.ring-fg {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.ring-bg {
+  stroke: rgba(255, 255, 255, 0.72);
+}
+
+.ring-fg {
+  stroke: var(--accent);
+  stroke-dasharray: 138.23;
+  stroke-dashoffset: 138.23;
+  transition: stroke 180ms ease, stroke-dashoffset 280ms ease;
+}
+
+.ring-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+#percent {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.speeds {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.logo {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: #1b1b1b;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.speeds b {
+  font-weight: 700;
+}
+
+.up {
+  color: #16a34a;
+}
+
+.down {
+  color: #ea8c2d;
+}
+
+#bar {
+  display: flex;
+  position: absolute;
+  box-sizing: border-box;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 8px;
+  top: 1px;
+  bottom: 1px;
+  left: 1px;
+  border-radius: 999px;
+  background: #3a3a42;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+#bar-fill {
+  width: 100%;
+  height: 40%;
+  border-radius: 999px;
+  background: linear-gradient(
+    to top,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 55%, white)
+  );
+  transition: height 280ms ease, background 180ms ease;
+}
+
+html[data-mode="collapsed-right"] #pill,
+html[data-mode="collapsed-left"] #pill,
+html[data-mode="collapsed"] #pill {
+  opacity: 0;
+  pointer-events: none;
+}
+
+html[data-mode="collapsed-right"] #widget,
+html[data-mode="collapsed-left"] #widget,
+html[data-mode="collapsed"] #widget {
+  background: transparent;
+}
+
+html[data-mode="collapsed-right"] #bar,
+html[data-mode="collapsed-left"] #bar,
+html[data-mode="collapsed"] #bar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+html[data-mode="collapsed-left"] #bar {
+  right: 1px;
+  left: auto;
+}
