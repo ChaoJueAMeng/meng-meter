@@ -4,9 +4,10 @@ function api() {
 
 function render(celsius) {
   const n = Number(celsius);
-  document.getElementById("temp").textContent = Number.isFinite(n)
-    ? `${Math.round(n)}°C`
-    : "--°C";
+  const shown = Number.isFinite(n) ? Math.round(n) : null;
+  const temp = document.getElementById("temp");
+  temp.textContent = shown === null ? "--°C" : `${shown}°C`;
+  temp.parentElement.classList.toggle("hot", shown !== null && shown >= 95);
 }
 
 function applyTheme(payload) {
