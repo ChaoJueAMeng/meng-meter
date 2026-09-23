@@ -40,25 +40,25 @@ body {
   height: 100%;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px 4px 4px;
+  gap: 7px;
+  padding: 5px 10px 5px 5px;
   border-radius: 999px;
   background: linear-gradient(180deg, var(--cream) 0%, var(--cream-2) 100%);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 7px 19px rgba(0, 0, 0, 0.2);
   opacity: 1;
   transition: opacity 160ms ease;
 }
 
 .ring-wrap {
   position: relative;
-  width: 46px;
-  height: 46px;
-  flex: 0 0 46px;
+  width: 55px;
+  height: 55px;
+  flex: 0 0 55px;
 }
 
 .ring-wrap svg {
-  width: 46px;
-  height: 46px;
+  width: 55px;
+  height: 55px;
   transform: rotate(-90deg);
 }
 
@@ -83,7 +83,7 @@ body {
 .ring-wrap::after {
   content: "";
   position: absolute;
-  inset: 7px;
+  inset: 8px;
   border-radius: 50%;
   background: #fff;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
@@ -95,7 +95,7 @@ body {
   z-index: 1;
   display: grid;
   place-items: center;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--ink);
 }
@@ -112,9 +112,9 @@ body {
 .title {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.01em;
   white-space: nowrap;
@@ -123,21 +123,21 @@ body {
 .speeds {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 10px;
+  gap: 10px;
+  font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
 }
 
 .logo {
-  width: 14px;
-  height: 14px;
-  border-radius: 4px;
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
   background: #1b1b1b;
   color: #fff;
   display: grid;
   place-items: center;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
 }
 
@@ -159,7 +159,7 @@ body {
   box-sizing: border-box;
   flex-direction: column;
   justify-content: flex-end;
-  width: 8px;
+  width: 10px;
   top: 1px;
   bottom: 1px;
   left: 1px;
