@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meng meter</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="logo">M</span>
+        <div>
+          <h1>Meng meter</h1>
+          <p id="kicker">第一次打开，选择要启用的功能</p>
+        </div>
+      </header>
+
+      <label class="option">
+        <input type="checkbox" id="autostart" />
+        <span class="copy">
+          <strong>开机自启</strong>
+          <small>登录 Windows 后自动运行</small>
+        </span>
+      </label>
+
+      <label class="option">
+        <input type="checkbox" id="floating" checked />
+        <span class="copy">
+          <strong>桌面悬浮球</strong>
+          <small>贴边显示内存占用，悬停查看网速</small>
+        </span>
+      </label>
+
+      <label class="option">
+        <input type="checkbox" id="taskbarTemp" checked />
+        <span class="copy">
+          <strong>任务栏 CPU 温度</strong>
+          <small>显示在系统托盘左侧</small>
+        </span>
+      </label>
+
+      <button id="save" type="button">开始使用</button>
+      <p class="hint">关掉后可通过桌面快捷方式再次打开</p>
+    </main>
+    <script src="settings.js"></script>
+  </body>
+</html>

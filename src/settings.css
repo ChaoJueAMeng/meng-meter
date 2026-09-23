@@ -1,0 +1,136 @@
+:root {
+  --cream: #fff4e4;
+  --cream-2: #fde6c4;
+  --ink: #2a241c;
+  --muted: #6b5e4e;
+  --line: rgba(42, 36, 28, 0.1);
+  --accent: #1b1b1b;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--cream) 0%, var(--cream-2) 100%);
+  color: var(--ink);
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+
+main {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 28px 28px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #1b1b1b;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 800;
+  flex: 0 0 36px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 750;
+}
+
+#kicker,
+.hint {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+}
+
+.option:hover {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.option input {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  accent-color: #1b1b1b;
+  flex: 0 0 16px;
+}
+
+.copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.copy strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.copy small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+button {
+  margin-top: 8px;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.08);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.hint {
+  text-align: center;
+}
