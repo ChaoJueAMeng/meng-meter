@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::fs;
 use std::sync::Mutex;
 use std::thread;
@@ -11,11 +12,14 @@ use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewWindow,
 };
 
+mod instance;
+mod settings;
 mod taskbar;
+mod trayicon;
 
-const EXP_W: f64 = 196.0;
-const EXP_H: f64 = 56.0;
-const COL_W: f64 = 10.0;
+const EXP_W: f64 = 211.0;
+const EXP_H: f64 = 67.0;
+const COL_W: f64 = 12.0;
 const SNAP_PX: i32 = 16;
 const ANIM_MS: u64 = 240;
 const ANIM_STEP_MS: u64 = 12;
@@ -42,6 +46,7 @@ struct MeterState {
     expanded: Mutex<bool>,
     hover: Mutex<bool>,
     anim_id: Mutex<u64>,
+    settings: Mutex<settings::Settings>,
 }
 
 #[derive(Serialize, Clone)]
@@ -276,6 +281,17 @@ mod cputemp {
     pub use platform::Probe;
 }
 
+fn memory_percent(sys: &mut System) -> f64 {
+    sys.refresh_memory();
+    let total = sys.total_memory() as f64;
+    let avail = sys.available_memory() as f64;
+    if total > 0.0 {
+        ((total - avail) / total) * 100.0
+    } else {
+        0.0
+    }
+}
+
 fn skip_iface(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     n.contains("loopback")
@@ -495,14 +511,9 @@ fn snap_if_needed(app: &AppHandle, state: &MeterState) {
 
 #[tauri::command]
 fn get_stats(state: State<MeterState>) -> Stats {
-    let mut sys = state.sys.lock().unwrap();
-    sys.refresh_memory();
-    let total = sys.total_memory() as f64;
-    let avail = sys.available_memory() as f64;
-    let mem_percent = if total > 0.0 {
-        ((total - avail) / total) * 100.0
-    } else {
-        0.0
+    let mem_percent = {
+        let mut sys = state.sys.lock().unwrap();
+        memory_percent(&mut sys)
     };
 
     let mut nets = state.networks.lock().unwrap();
@@ -716,13 +727,159 @@ fn begin_drag(app: AppHandle, state: State<MeterState>) {
     });
 }
 
+fn tray_tooltip(percent: f64) -> String {
+    format!("Meng meter  内存 {:.0}%", percent.clamp(0.0, 100.0))
+}
+
+fn spawn_tray_updater(app: AppHandle) {
+    thread::spawn(move || {
+        let mut history = VecDeque::with_capacity(trayicon::SAMPLES);
+        loop {
+            let percent = app
+                .state::<MeterState>()
+                .sys
+                .lock()
+                .ok()
+                .map(|mut sys| memory_percent(&mut sys))
+                .unwrap_or(0.0);
+            if history.len() == trayicon::SAMPLES {
+                history.pop_front();
+            }
+            history.push_back(percent);
+            let samples: Vec<f64> = history.iter().copied().collect();
+            if let Some(tray) = app.tray_by_id(trayicon::ID) {
+                let _ = tray.set_icon(Some(trayicon::render(&samples)));
+                let _ = tray.set_tooltip(Some(tray_tooltip(percent)));
+            }
+            thread::sleep(Duration::from_millis(1000));
+        }
+    });
+}
+
 #[tauri::command]
 fn set_hover(app: AppHandle, state: State<MeterState>, hover: bool) {
     apply_hover(&app, &state, hover);
 }
 
+#[tauri::command]
+fn get_settings(state: State<MeterState>) -> settings::Settings {
+    state
+        .settings
+        .lock()
+        .map(|g| g.clone())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_settings(
+    app: AppHandle,
+    state: State<MeterState>,
+    mut settings: settings::Settings,
+) -> Result<settings::Settings, String> {
+    settings.configured = true;
+    settings::save(&app, &settings)?;
+    if let Ok(mut g) = state.settings.lock() {
+        *g = settings.clone();
+    }
+    settings::apply(&app, &settings);
+    if let Some(win) = app.get_webview_window("settings") {
+        let _ = win.hide();
+    }
+    if settings.floating {
+        apply_mode(&app, &state, true);
+        maybe_collapse_later(app.clone());
+    }
+    Ok(settings)
+}
+
+fn open_settings(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("settings") {
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+    }
+}
+
+fn show_main_if_enabled(app: &AppHandle, state: &MeterState) {
+    let settings = state
+        .settings
+        .lock()
+        .ok()
+        .map(|g| g.clone())
+        .unwrap_or_default();
+    if !settings.configured {
+        open_settings(app);
+        return;
+    }
+    if !settings.floating {
+        if let Some(win) = main_window(app) {
+            let _ = win.hide();
+        }
+        return;
+    }
+    if let Some(win) = main_window(app) {
+        let _ = win.set_background_color(Some(Color(0, 0, 0, 0)));
+        apply_mode(app, state, true);
+        let _ = win.show();
+        let _ = win.set_always_on_top(true);
+    }
+}
+
+fn maybe_collapse_later(app: AppHandle) {
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(1600));
+        let app3 = app.clone();
+        on_main(&app, move || {
+            let st = app3.state::<MeterState>();
+            if !st
+                .settings
+                .lock()
+                .ok()
+                .map(|g| g.floating)
+                .unwrap_or(false)
+            {
+                return;
+            }
+            if st.hover.lock().ok().map(|g| *g).unwrap_or(false) {
+                return;
+            }
+            if st.dock.lock().ok().and_then(|g| *g).is_none() {
+                return;
+            }
+            apply_mode(&app3, &st, false);
+        });
+    });
+}
+
+fn bind_settings_window(app: &AppHandle) {
+    let Some(win) = app.get_webview_window("settings") else {
+        return;
+    };
+    let handle = app.clone();
+    win.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let configured = handle
+                .state::<MeterState>()
+                .settings
+                .lock()
+                .ok()
+                .map(|g| g.configured)
+                .unwrap_or(false);
+            if !configured {
+                handle.exit(0);
+                return;
+            }
+            if let Some(win) = handle.get_webview_window("settings") {
+                let _ = win.hide();
+            }
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    instance::acquire();
     let mut sys = System::new();
     sys.refresh_memory();
     let mut networks = Networks::new_with_refreshed_list();
@@ -739,33 +896,58 @@ pub fn run() {
             expanded: Mutex::new(true),
             hover: Mutex::new(false),
             anim_id: Mutex::new(0),
+            settings: Mutex::new(settings::Settings::default()),
         })
         .invoke_handler(tauri::generate_handler![
-            get_stats, get_cpu_temp, get_mode, begin_drag, set_hover
+            get_stats,
+            get_cpu_temp,
+            get_mode,
+            begin_drag,
+            set_hover,
+            get_settings,
+            save_settings
         ])
         .setup(|app| {
+            let loaded = settings::load(app.handle());
+            if let Ok(mut g) = app.state::<MeterState>().settings.lock() {
+                *g = loaded.clone();
+            }
+
+            let settings_item = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let show = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &quit])?;
-            if let Some(icon) = app.default_window_icon().cloned() {
-                let _ = TrayIconBuilder::new()
-                    .icon(icon)
-                    .menu(&menu)
-                    .show_menu_on_left_click(true)
-                    .tooltip("Meng meter")
-                    .on_menu_event(|app, event| match event.id.as_ref() {
-                        "quit" => app.exit(0),
-                        "show" => {
-                            if let Some(win) = main_window(app) {
-                                let _ = win.show();
-                                let _ = win.unminimize();
-                                let _ = win.set_always_on_top(true);
-                            }
-                        }
-                        _ => {}
-                    })
-                    .build(app);
-            }
+            let menu = Menu::with_items(app, &[&settings_item, &show, &quit])?;
+            let percent = app
+                .state::<MeterState>()
+                .sys
+                .lock()
+                .ok()
+                .map(|mut sys| memory_percent(&mut sys))
+                .unwrap_or(0.0);
+            let _ = TrayIconBuilder::with_id(trayicon::ID)
+                .icon(trayicon::render(&[percent]))
+                .menu(&menu)
+                .show_menu_on_left_click(true)
+                .tooltip(tray_tooltip(percent))
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "quit" => app.exit(0),
+                    "settings" => open_settings(app),
+                    "show" => {
+                        let st = app.state::<MeterState>();
+                        show_main_if_enabled(app, &st);
+                    }
+                    _ => {}
+                })
+                .build(app);
+            spawn_tray_updater(app.handle().clone());
+            bind_settings_window(app.handle());
+            let focus_app = app.handle().clone();
+            instance::listen(move || {
+                let app2 = focus_app.clone();
+                on_main(&focus_app, move || {
+                    open_settings(&app2);
+                });
+            });
 
             let state = app.state::<MeterState>();
             if let Some(layout) = load_layout(app.handle()) {
@@ -781,30 +963,18 @@ pub fn run() {
                 }
             }
 
-            if let Some(win) = main_window(app.handle()) {
-                let _ = win.set_background_color(Some(Color(0, 0, 0, 0)));
-                apply_mode(app.handle(), &state, true);
-                let _ = win.show();
-                let _ = win.set_always_on_top(true);
-            }
-
             spawn_hover_watcher(app.handle().clone());
             taskbar::spawn(app.handle().clone());
-            let app2 = app.handle().clone();
-            thread::spawn(move || {
-                thread::sleep(Duration::from_millis(1600));
-                let app3 = app2.clone();
-                on_main(&app2, move || {
-                    let st = app3.state::<MeterState>();
-                    if st.hover.lock().ok().map(|g| *g).unwrap_or(false) {
-                        return;
-                    }
-                    if st.dock.lock().ok().and_then(|g| *g).is_none() {
-                        return;
-                    }
-                    apply_mode(&app3, &st, false);
-                });
-            });
+
+            if loaded.configured {
+                settings::apply(app.handle(), &loaded);
+                if loaded.floating {
+                    show_main_if_enabled(app.handle(), &state);
+                    maybe_collapse_later(app.handle().clone());
+                }
+            } else {
+                open_settings(app.handle());
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

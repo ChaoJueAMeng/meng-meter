@@ -12,8 +12,8 @@
       {
         "label": "main",
         "title": "Meng meter",
-        "width": 196,
-        "height": 56,
+        "width": 211,
+        "height": 67,
         "transparent": true,
         "decorations": false,
         "alwaysOnTop": true,
@@ -23,8 +23,21 @@
         "maximizable": false,
         "minimizable": false,
         "fullscreen": false,
-        "visible": true,
-        "focus": true
+        "visible": false,
+        "focus": false
+      },
+      {
+        "label": "settings",
+        "title": "Meng meter",
+        "url": "settings.html",
+        "width": 400,
+        "height": 520,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "center": true,
+        "visible": false,
+        "focus": false
       },
       {
         "label": "taskbar",
@@ -53,13 +66,26 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "publisher": "Meng",
+    "shortDescription": "内存占用与网速悬浮球",
+    "category": "Utility",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese"],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    }
   }
 }
