@@ -3,6 +3,13 @@
   --cream: #fff4e4;
   --cream-2: #fde6c4;
   --ink: #2a241c;
+  --pill-from: var(--cream);
+  --pill-to: var(--cream-2);
+}
+
+html[data-mem="low"] {
+  --pill-from: #f7fbff;
+  --pill-to: #dceafc;
 }
 
 html,
@@ -43,10 +50,9 @@ body {
   gap: 7px;
   padding: 5px 10px 5px 5px;
   border-radius: 999px;
-  background: linear-gradient(180deg, var(--cream) 0%, var(--cream-2) 100%);
-  box-shadow: 0 7px 19px rgba(0, 0, 0, 0.2);
+  background: linear-gradient(180deg, var(--pill-from) 0%, var(--pill-to) 100%);
   opacity: 1;
-  transition: opacity 160ms ease;
+  transition: opacity 160ms ease, background 280ms ease;
 }
 
 .ring-wrap {
@@ -133,12 +139,9 @@ body {
   width: 17px;
   height: 17px;
   border-radius: 5px;
-  background: #1b1b1b;
-  color: #fff;
-  display: grid;
-  place-items: center;
-  font-size: 10px;
-  font-weight: 800;
+  object-fit: cover;
+  display: block;
+  flex: 0 0 17px;
 }
 
 .speeds b {

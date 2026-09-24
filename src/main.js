@@ -32,6 +32,7 @@ function render(stats) {
   const percent = Math.max(0, Math.min(100, stats.memPercent ?? 0));
   const color = colorFor(percent);
   document.documentElement.style.setProperty("--accent", color);
+  document.documentElement.dataset.mem = percent < 50 ? "low" : "high";
 
   const percentEl = document.getElementById("percent");
   const ring = document.getElementById("ring");
