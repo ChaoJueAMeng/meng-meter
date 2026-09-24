@@ -37,7 +37,9 @@
         "minimizable": false,
         "center": true,
         "visible": false,
-        "focus": false
+        "focus": false,
+        "theme": "Light",
+        "backgroundColor": "#f7fbff"
       },
       {
         "label": "taskbar",

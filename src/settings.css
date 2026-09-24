@@ -1,10 +1,11 @@
 :root {
-  --cream: #fff4e4;
-  --cream-2: #fde6c4;
-  --ink: #2a241c;
-  --muted: #6b5e4e;
-  --line: rgba(42, 36, 28, 0.1);
-  --accent: #1b1b1b;
+  --bg-1: #f7fbff;
+  --bg-2: #dceafc;
+  --ink: #163154;
+  --muted: #5b7394;
+  --line: rgba(37, 99, 235, 0.14);
+  --accent: #2563eb;
+  --card: rgba(255, 255, 255, 0.78);
 }
 
 html,
@@ -13,7 +14,7 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: linear-gradient(180deg, var(--cream) 0%, var(--cream-2) 100%);
+  background: linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 100%);
   color: var(--ink);
   font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
   user-select: none;
@@ -46,12 +47,8 @@ header {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: #1b1b1b;
-  color: #fff;
-  display: grid;
-  place-items: center;
-  font-size: 16px;
-  font-weight: 800;
+  object-fit: cover;
+  display: block;
   flex: 0 0 36px;
 }
 
@@ -76,19 +73,21 @@ h1 {
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.04);
   cursor: pointer;
 }
 
 .option:hover {
-  background: rgba(255, 255, 255, 0.8);
+  background: #fff;
+  border-color: rgba(37, 99, 235, 0.28);
 }
 
 .option input {
   margin-top: 3px;
   width: 16px;
   height: 16px;
-  accent-color: #1b1b1b;
+  accent-color: var(--accent);
   flex: 0 0 16px;
 }
 
