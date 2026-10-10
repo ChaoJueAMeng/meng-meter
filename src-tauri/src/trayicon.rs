@@ -78,9 +78,6 @@ pub fn render(history: &[f64]) -> Image<'static> {
         }
     }
 
-    let line: Vec<(f32, f32)> = points.iter().map(|p| (p.x, p.y)).collect();
-    stroke_polyline(&mut rgba, &line, (248, 250, 252), 1.7);
-
     Image::new_owned(rgba, SIZE, SIZE)
 }
 
@@ -137,46 +134,6 @@ fn sample_at(points: &[PlotPoint], x: f32) -> Option<(f32, f32)> {
         return Some((y, percent));
     }
     None
-}
-
-fn stroke_polyline(buf: &mut [u8], points: &[(f32, f32)], rgb: (u8, u8, u8), thickness: f32) {
-    if points.len() < 2 {
-        return;
-    }
-    let pad = (thickness + 2.0).ceil() as i32;
-    for pair in points.windows(2) {
-        let (ax, ay) = pair[0];
-        let (bx, by) = pair[1];
-        let min_x = ((ax.min(bx) - pad as f32).floor() as i32).max(0);
-        let max_x = ((ax.max(bx) + pad as f32).ceil() as i32).min(SIZE as i32 - 1);
-        let min_y = ((ay.min(by) - pad as f32).floor() as i32).max(0);
-        let max_y = ((ay.max(by) + pad as f32).ceil() as i32).min(SIZE as i32 - 1);
-        for y in min_y..=max_y {
-            for x in min_x..=max_x {
-                let fx = x as f32 + 0.5;
-                let fy = y as f32 + 0.5;
-                let d = dist_seg(fx, fy, ax, ay, bx, by);
-                let a = (thickness * 0.5 + 0.45 - d).clamp(0.0, 1.0);
-                if a > 0.0 {
-                    blend(buf, x as usize, y as usize, rgb, a);
-                }
-            }
-        }
-    }
-}
-
-fn dist_seg(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> f32 {
-    let vx = bx - ax;
-    let vy = by - ay;
-    let len2 = vx * vx + vy * vy;
-    let t = if len2 < 1e-6 {
-        0.0
-    } else {
-        (((px - ax) * vx + (py - ay) * vy) / len2).clamp(0.0, 1.0)
-    };
-    let qx = ax + t * vx;
-    let qy = ay + t * vy;
-    (px - qx).hypot(py - qy)
 }
 
 fn rbox(px: f32, py: f32, minx: f32, miny: f32, maxx: f32, maxy: f32, r: f32) -> f32 {
