@@ -40,26 +40,6 @@
         "focus": false,
         "theme": "Light",
         "backgroundColor": "#f7fbff"
-      },
-      {
-        "label": "taskbar",
-        "title": "CPU 温度",
-        "url": "taskbar.html",
-        "width": 72,
-        "height": 48,
-        "transparent": true,
-        "decorations": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "shadow": false,
-        "resizable": false,
-        "maximizable": false,
-        "minimizable": false,
-        "closable": false,
-        "fullscreen": false,
-        "visible": false,
-        "focus": false,
-        "focusable": false
       }
     ],
     "security": {
