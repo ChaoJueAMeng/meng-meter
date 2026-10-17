@@ -1824,6 +1824,7 @@ dependencies = [
 name = "meng-meter"
 version = "0.2.2"
 dependencies = [
+ "cc",
  "serde",
  "serde_json",
  "sysinfo",
