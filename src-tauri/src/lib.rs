@@ -9,15 +9,18 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::window::Color;
 use tauri::{
-    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewWindow,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, State,
+    WebviewWindow, Wry,
 };
 
+mod fps;
 mod instance;
 mod settings;
 mod taskbar;
 mod trayicon;
 
-const EXP_W: f64 = 211.0;
+const NO_FPS_W: f64 = 198.0;
+const FPS_W: f64 = 227.0;
 const EXP_H: f64 = 67.0;
 const COL_W: f64 = 12.0;
 const SNAP_PX: i32 = 16;
@@ -36,6 +39,12 @@ struct Drag {
     offset_y: i32,
 }
 
+struct FpsMenus {
+    tray: MenuItem<Wry>,
+    ball: MenuItem<Wry>,
+    popup: Menu<Wry>,
+}
+
 struct MeterState {
     sys: Mutex<System>,
     networks: Mutex<Networks>,
@@ -46,7 +55,10 @@ struct MeterState {
     expanded: Mutex<bool>,
     hover: Mutex<bool>,
     anim_id: Mutex<u64>,
+    menu_open: Mutex<bool>,
     settings: Mutex<settings::Settings>,
+    fps: Mutex<fps::Meter>,
+    menus: Mutex<Option<FpsMenus>>,
 }
 
 #[derive(Serialize, Clone)]
@@ -56,6 +68,8 @@ struct Stats {
     up_bps: f64,
     down_bps: f64,
     cpu_c: Option<f64>,
+    fps: Option<f64>,
+    refresh_hz: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -232,10 +246,8 @@ mod cputemp {
                     if status != 0 || count == 0 {
                         return None;
                     }
-                    let items = std::slice::from_raw_parts(
-                        raw.as_ptr() as *const Item,
-                        count as usize,
-                    );
+                    let items =
+                        std::slice::from_raw_parts(raw.as_ptr() as *const Item, count as usize);
                     let mut best: Option<(u8, f64)> = None;
                     for item in items {
                         if item.value.status != PDH_CSTATUS_VALID_DATA
@@ -348,6 +360,85 @@ fn load_layout(app: &AppHandle) -> Option<Layout> {
     serde_json::from_slice(&bytes).ok()
 }
 
+fn show_fps(state: &MeterState) -> bool {
+    state
+        .settings
+        .lock()
+        .ok()
+        .map(|settings| settings.show_fps)
+        .unwrap_or(true)
+}
+
+fn expanded_size(state: &MeterState) -> (f64, f64) {
+    (if show_fps(state) { FPS_W } else { NO_FPS_W }, EXP_H)
+}
+
+fn fps_label(show: bool) -> &'static str {
+    if show {
+        "关闭FPS显示"
+    } else {
+        "开启FPS显示"
+    }
+}
+
+fn sync_fps_menus(state: &MeterState) {
+    let label = fps_label(show_fps(state));
+    let Ok(menus) = state.menus.lock() else {
+        return;
+    };
+    let Some(menus) = menus.as_ref() else {
+        return;
+    };
+    let _ = menus.tray.set_text(label);
+    let _ = menus.ball.set_text(label);
+}
+
+fn emit_fps_display(app: &AppHandle, show: bool) {
+    if let Some(win) = main_window(app) {
+        let mode = if show { "on" } else { "off" };
+        let _ = win.eval(format!("document.documentElement.dataset.fps='{mode}'"));
+    }
+    let _ = app.emit("fps-display", show);
+}
+
+fn toggle_show_fps(app: &AppHandle, state: &MeterState) {
+    let mut next = state
+        .settings
+        .lock()
+        .ok()
+        .map(|settings| settings.clone())
+        .unwrap_or_default();
+    next.show_fps = !next.show_fps;
+    if settings::save(app, &next).is_err() {
+        return;
+    }
+    if let Ok(mut settings) = state.settings.lock() {
+        *settings = next.clone();
+    }
+    sync_fps_menus(state);
+    emit_fps_display(app, next.show_fps);
+    if next.floating {
+        let expanded = state
+            .expanded
+            .lock()
+            .ok()
+            .map(|expanded| *expanded)
+            .unwrap_or(true);
+        apply_mode(app, state, expanded);
+    }
+}
+
+fn menu_anchor(win: &WebviewWindow) -> Option<LogicalPosition<f64>> {
+    let cursor = win.cursor_position().ok()?;
+    let origin = win.outer_position().ok()?;
+    let size = win.outer_size().ok()?;
+    let scale = win.scale_factor().unwrap_or(1.0).max(0.01);
+    let width = size.width as f64 / scale;
+    let height = size.height as f64 / scale;
+    let x = ((cursor.x - origin.x as f64) / scale).clamp(0.0, width);
+    Some(LogicalPosition::new(x, height))
+}
+
 fn ease_out_cubic(t: f64) -> f64 {
     let u = 1.0 - t.clamp(0.0, 1.0);
     1.0 - u * u * u
@@ -391,8 +482,9 @@ fn apply_mode(app: &AppHandle, state: &MeterState, expanded: bool) {
         return;
     };
 
-    let full_w = (EXP_W * scale).round() as i32;
-    let full_h = (EXP_H * scale).round() as i32;
+    let (exp_w, exp_h) = expanded_size(state);
+    let full_w = (exp_w * scale).round() as i32;
+    let full_h = (exp_h * scale).round() as i32;
     let peek = (COL_W * scale).round() as i32;
     let cy = pos.y + size.height as i32 / 2;
     let mut new_y = cy - full_h / 2;
@@ -421,7 +513,7 @@ fn apply_mode(app: &AppHandle, state: &MeterState, expanded: bool) {
         _ => pos.x,
     };
 
-    let _ = win.set_size(LogicalSize::new(EXP_W, EXP_H));
+    let _ = win.set_size(LogicalSize::new(exp_w, exp_h));
     let id = bump_anim(state);
     let from_x = pos.x;
     let from_y = pos.y;
@@ -541,11 +633,20 @@ fn get_stats(state: State<MeterState>) -> Stats {
         cpu.as_ref().and_then(|probe| probe.celsius())
     };
 
+    let (fps, refresh_hz) = state
+        .fps
+        .lock()
+        .ok()
+        .map(|meter| (meter.frames_per_sec(), meter.refresh_hz()))
+        .unwrap_or((None, None));
+
     Stats {
         mem_percent,
         up_bps: up as f64 / dt,
         down_bps: down as f64 / dt,
         cpu_c,
+        fps,
+        refresh_hz,
     }
 }
 
@@ -601,7 +702,22 @@ fn cursor_inside(win: &WebviewWindow, state: &MeterState) -> bool {
     x >= x0 && x < x1 && y >= pos.y - pad && y < pos.y + size.height as i32 + pad
 }
 
+fn menu_open(state: &MeterState) -> bool {
+    state
+        .menu_open
+        .lock()
+        .ok()
+        .map(|open| *open)
+        .unwrap_or(false)
+}
+
 fn apply_hover(app: &AppHandle, state: &MeterState, hover: bool) {
+    if menu_open(state) {
+        if let Ok(mut g) = state.hover.lock() {
+            *g = true;
+        }
+        return;
+    }
     if let Ok(mut g) = state.hover.lock() {
         *g = hover;
     }
@@ -627,6 +743,9 @@ fn apply_hover(app: &AppHandle, state: &MeterState, hover: bool) {
             if st.hover.lock().ok().map(|g| *g).unwrap_or(true) {
                 return;
             }
+            if menu_open(&st) {
+                return;
+            }
             if st.drag.lock().ok().and_then(|g| *g).is_some() {
                 return;
             }
@@ -650,7 +769,7 @@ fn spawn_hover_watcher(app: AppHandle) {
                     return;
                 };
                 let st = app2.state::<MeterState>();
-                if st.drag.lock().ok().and_then(|g| *g).is_some() {
+                if st.drag.lock().ok().and_then(|g| *g).is_some() || menu_open(&st) {
                     return;
                 }
                 let inside = cursor_inside(&win, &st);
@@ -757,17 +876,56 @@ fn spawn_tray_updater(app: AppHandle) {
 }
 
 #[tauri::command]
+fn open_ball_menu(app: AppHandle) {
+    thread::spawn(move || {
+        let state = app.state::<MeterState>();
+        let popup = {
+            let menus = state.menus.lock().ok();
+            menus.and_then(|menus| menus.as_ref().map(|menus| menus.popup.clone()))
+        };
+        let Some(popup) = popup else {
+            return;
+        };
+        let Some(win) = main_window(&app) else {
+            return;
+        };
+        if let Ok(mut hover) = state.hover.lock() {
+            *hover = true;
+        }
+        if let Ok(mut open) = state.menu_open.lock() {
+            *open = true;
+        }
+        let _ = win.set_always_on_top(false);
+        let opened = match menu_anchor(&win) {
+            Some(anchor) => win.popup_menu_at(&popup, anchor),
+            None => win.popup_menu(&popup),
+        };
+        let _ = opened;
+        if let Ok(mut open) = state.menu_open.lock() {
+            *open = false;
+        }
+        let floating = state
+            .settings
+            .lock()
+            .ok()
+            .map(|settings| settings.floating)
+            .unwrap_or(false);
+        if floating {
+            let _ = win.set_always_on_top(true);
+        }
+        let inside = cursor_inside(&win, &state);
+        apply_hover(&app, &state, inside);
+    });
+}
+
+#[tauri::command]
 fn set_hover(app: AppHandle, state: State<MeterState>, hover: bool) {
     apply_hover(&app, &state, hover);
 }
 
 #[tauri::command]
 fn get_settings(state: State<MeterState>) -> settings::Settings {
-    state
-        .settings
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_default()
+    state.settings.lock().map(|g| g.clone()).unwrap_or_default()
 }
 
 #[tauri::command]
@@ -782,6 +940,8 @@ fn save_settings(
         *g = settings.clone();
     }
     settings::apply(&app, &settings);
+    sync_fps_menus(&state);
+    emit_fps_display(&app, settings.show_fps);
     if let Some(win) = app.get_webview_window("settings") {
         let _ = win.hide();
     }
@@ -831,13 +991,7 @@ fn maybe_collapse_later(app: AppHandle) {
         let app3 = app.clone();
         on_main(&app, move || {
             let st = app3.state::<MeterState>();
-            if !st
-                .settings
-                .lock()
-                .ok()
-                .map(|g| g.floating)
-                .unwrap_or(false)
-            {
+            if !st.settings.lock().ok().map(|g| g.floating).unwrap_or(false) {
                 return;
             }
             if st.hover.lock().ok().map(|g| *g).unwrap_or(false) {
@@ -896,7 +1050,10 @@ pub fn run() {
             expanded: Mutex::new(true),
             hover: Mutex::new(false),
             anim_id: Mutex::new(0),
+            menu_open: Mutex::new(false),
             settings: Mutex::new(settings::Settings::default()),
+            fps: Mutex::new(fps::Meter::start()),
+            menus: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             get_stats,
@@ -905,7 +1062,8 @@ pub fn run() {
             begin_drag,
             set_hover,
             get_settings,
-            save_settings
+            save_settings,
+            open_ball_menu
         ])
         .setup(|app| {
             let loaded = settings::load(app.handle());
@@ -913,10 +1071,23 @@ pub fn run() {
                 *g = loaded.clone();
             }
 
+            let label = fps_label(loaded.show_fps);
             let settings_item = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let show = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&settings_item, &show, &quit])?;
+            let tray_fps = MenuItem::with_id(app, "fps", label, true, None::<&str>)?;
+            let ball_settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
+            let ball_quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let ball_fps = MenuItem::with_id(app, "fps", label, true, None::<&str>)?;
+            let popup = Menu::with_items(app, &[&ball_settings, &ball_fps, &ball_quit])?;
+            if let Ok(mut menus) = app.state::<MeterState>().menus.lock() {
+                *menus = Some(FpsMenus {
+                    tray: tray_fps.clone(),
+                    ball: ball_fps,
+                    popup,
+                });
+            }
+            let menu = Menu::with_items(app, &[&settings_item, &tray_fps, &show, &quit])?;
             let percent = app
                 .state::<MeterState>()
                 .sys
@@ -935,6 +1106,13 @@ pub fn run() {
                     "show" => {
                         let st = app.state::<MeterState>();
                         show_main_if_enabled(app, &st);
+                    }
+                    "fps" => {
+                        let handle = app.clone();
+                        thread::spawn(move || {
+                            let st = handle.state::<MeterState>();
+                            toggle_show_fps(&handle, &st);
+                        });
                     }
                     _ => {}
                 })
@@ -967,6 +1145,11 @@ pub fn run() {
             taskbar::spawn(app.handle().clone());
 
             if loaded.configured {
+                emit_fps_display(app.handle(), loaded.show_fps);
+                if let Some(win) = main_window(app.handle()) {
+                    let (width, height) = expanded_size(&state);
+                    let _ = win.set_size(LogicalSize::new(width, height));
+                }
                 settings::apply(app.handle(), &loaded);
                 if loaded.floating {
                     show_main_if_enabled(app.handle(), &state);

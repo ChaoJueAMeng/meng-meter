@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" data-mode="expanded">
+<html lang="zh-CN" data-mode="expanded" data-fps="on">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -16,15 +16,24 @@
           </svg>
           <span id="percent">0%</span>
         </div>
-        <div class="info">
-          <div class="title">
-            <img class="logo" src="logo.png" alt="" />
-            <span>Meng meter</span>
-          </div>
+        <div class="mid">
           <div class="speeds">
-            <span class="up">↑ <b id="up">0 B/s</b></span>
-            <span class="down">↓ <b id="down">0 B/s</b></span>
+            <span class="up">↑</span>
+            <b class="up" data-speed="up">0B/s</b>
+            <span class="down">↓</span>
+            <b class="down" data-speed="down">0B/s</b>
           </div>
+          <div id="fps">
+            <b id="fps-value">--</b>
+            <small>FPS</small>
+          </div>
+        </div>
+        <div class="ring-wrap ring-temp">
+          <svg viewBox="0 0 56 56" aria-hidden="true">
+            <circle class="ring-bg" cx="28" cy="28" r="22" />
+            <circle class="ring-fg" id="temp-ring" cx="28" cy="28" r="22" />
+          </svg>
+          <span id="temp">--</span>
         </div>
       </div>
       <div id="bar">

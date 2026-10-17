@@ -12,6 +12,8 @@ pub struct Settings {
     #[serde(default = "enabled")]
     pub floating: bool,
     #[serde(default = "enabled")]
+    pub show_fps: bool,
+    #[serde(default = "enabled")]
     pub taskbar_temp: bool,
 }
 
@@ -25,6 +27,7 @@ impl Default for Settings {
             configured: false,
             autostart: false,
             floating: true,
+            show_fps: true,
             taskbar_temp: true,
         }
     }

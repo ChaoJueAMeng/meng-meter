@@ -7,6 +7,7 @@ function readForm() {
     configured: true,
     autostart: document.getElementById("autostart").checked,
     floating: document.getElementById("floating").checked,
+    showFps: document.getElementById("showFps").checked,
     taskbarTemp: document.getElementById("taskbarTemp").checked,
   };
 }
@@ -14,6 +15,7 @@ function readForm() {
 function fillForm(settings) {
   document.getElementById("autostart").checked = Boolean(settings.autostart);
   document.getElementById("floating").checked = settings.floating !== false;
+  document.getElementById("showFps").checked = settings.showFps !== false;
   document.getElementById("taskbarTemp").checked = settings.taskbarTemp !== false;
   const first = !settings.configured;
   document.getElementById("kicker").textContent = first
@@ -30,7 +32,12 @@ async function boot() {
   }
 
   const { invoke } = api().core;
+  const { listen } = api().event;
   const saveBtn = document.getElementById("save");
+
+  await listen("fps-display", (event) => {
+    document.getElementById("showFps").checked = Boolean(event.payload);
+  });
 
   try {
     fillForm(await invoke("get_settings"));

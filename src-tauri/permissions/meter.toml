@@ -8,5 +8,6 @@ commands.allow = [
   "begin_drag",
   "set_hover",
   "get_settings",
-  "save_settings"
+  "save_settings",
+  "open_ball_menu"
 ]

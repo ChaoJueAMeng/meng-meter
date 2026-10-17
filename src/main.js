@@ -6,6 +6,19 @@ function colorFor(percent) {
   return "#ef4444";
 }
 
+function colorForFps(fps) {
+  if (fps < 1) return "#a8a29e";
+  if (fps < 30) return "#ef4444";
+  if (fps < 60) return "#f59e0b";
+  return "#22c55e";
+}
+
+function colorForTemp(celsius) {
+  if (celsius < 90) return "#22c55e";
+  if (celsius <= 95) return "#f59e0b";
+  return "#ef4444";
+}
+
 function formatSpeed(bps) {
   const n = Number.isFinite(bps) ? Math.max(0, bps) : 0;
   if (n < 1000) return `${n.toFixed(0)}B/s`;
@@ -16,6 +29,10 @@ function formatSpeed(bps) {
 
 function api() {
   return window.__TAURI__;
+}
+
+function setFpsDisplay(on) {
+  document.documentElement.dataset.fps = on ? "on" : "off";
 }
 
 function setMode(mode) {
@@ -42,8 +59,48 @@ function render(stats) {
   ring.style.strokeDashoffset = `${RING_C * (1 - percent / 100)}`;
   fill.style.height = `${percent}%`;
 
-  document.getElementById("up").textContent = formatSpeed(stats.upBps);
-  document.getElementById("down").textContent = formatSpeed(stats.downBps);
+  const up = formatSpeed(stats.upBps);
+  const down = formatSpeed(stats.downBps);
+  document.querySelectorAll("[data-speed='up']").forEach((el) => {
+    el.textContent = up;
+  });
+  document.querySelectorAll("[data-speed='down']").forEach((el) => {
+    el.textContent = down;
+  });
+  renderFps(stats.fps);
+  renderTemp(stats.cpuC);
+}
+
+function renderFps(fps) {
+  const label = document.getElementById("fps-value");
+  if (fps == null || !Number.isFinite(Number(fps))) {
+    label.textContent = "--";
+    document.documentElement.style.setProperty("--fps", "#a8a29e");
+    return;
+  }
+  const shown = Math.round(Math.max(0, Number(fps)));
+  document.documentElement.style.setProperty("--fps", colorForFps(shown));
+  label.textContent = `${shown}`;
+}
+
+function renderTemp(celsius) {
+  const ring = document.getElementById("temp-ring");
+  const label = document.getElementById("temp");
+  ring.style.strokeDasharray = `${RING_C}`;
+  if (celsius == null || !Number.isFinite(Number(celsius))) {
+    label.textContent = "--";
+    label.style.fontSize = "";
+    document.documentElement.style.setProperty("--temp", "#a8a29e");
+    ring.style.strokeDashoffset = `${RING_C}`;
+    return;
+  }
+  const value = Number(celsius);
+  const shown = Math.round(value);
+  document.documentElement.style.setProperty("--temp", colorForTemp(shown));
+  label.style.fontSize = Math.abs(shown) >= 100 ? "12px" : "";
+  label.textContent = `${shown}°C`;
+  const ratio = Math.max(0, Math.min(100, value)) / 100;
+  ring.style.strokeDashoffset = `${RING_C * (1 - ratio)}`;
 }
 
 async function pollStats(invoke) {
@@ -64,8 +121,11 @@ async function boot() {
   const { listen } = api().event;
 
   await listen("mode", (event) => setMode(event.payload));
+  await listen("fps-display", (event) => setFpsDisplay(Boolean(event.payload)));
   try {
     setMode(await invoke("get_mode"));
+    const settings = await invoke("get_settings");
+    setFpsDisplay(settings.showFps !== false);
   } catch (err) {
     console.error(err);
   }
@@ -81,7 +141,10 @@ async function boot() {
   window.addEventListener("mouseenter", () => invoke("set_hover", { hover: true }));
   window.addEventListener("mouseleave", () => invoke("set_hover", { hover: false }));
 
-  document.addEventListener("contextmenu", (event) => event.preventDefault());
+  document.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    invoke("open_ball_menu").catch((err) => console.error(err));
+  });
 
   await pollStats(invoke);
   setInterval(() => pollStats(invoke), 1000);
