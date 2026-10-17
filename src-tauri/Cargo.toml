@@ -18,6 +18,18 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sysinfo = "0.33"
 
+# dev 默认会给每个依赖生成完整调试信息，target 会涨到十几 GB。
+# 本包只留文件名和行号，依赖不生成调试信息。需要断点调试依赖时用 --profile debugging。
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.debugging]
+inherits = "dev"
+debug = true
+
 [profile.release]
 codegen-units = 1
 lto = true
