@@ -1,10 +1,12 @@
 use tauri::AppHandle;
 
-pub fn set_enabled(_app: &AppHandle, enabled: bool) {
+pub fn set_sources(cpu: bool, gpu: bool) {
     #[cfg(windows)]
-    platform::set_enabled(enabled);
+    platform::set_sources(cpu, gpu);
     #[cfg(not(windows))]
-    let _ = enabled;
+    {
+        let _ = (cpu, gpu);
+    }
 }
 
 pub fn spawn(_app: AppHandle) {
@@ -19,11 +21,11 @@ mod platform {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    static ENABLED: AtomicBool = AtomicBool::new(false);
+    static CPU_ON: AtomicBool = AtomicBool::new(false);
+    static GPU_ON: AtomicBool = AtomicBool::new(false);
     static ALLOW_HIDE: AtomicBool = AtomicBool::new(false);
 
     const CLASS_NAME: &str = "MengMeterTaskbar";
-    const LABEL: &str = "CPU温度";
     const HOT_CELSIUS: i64 = 95;
     const COLOR_DARK: u32 = 0x0033_3333;
     const COLOR_LIGHT: u32 = 0x00FF_FFFF;
@@ -83,8 +85,9 @@ mod platform {
     const REG_DWORD: u32 = 4;
     const ERROR_CLASS_ALREADY_EXISTS: u32 = 1410;
 
-    pub fn set_enabled(enabled: bool) {
-        ENABLED.store(enabled, Ordering::SeqCst);
+    pub fn set_sources(cpu: bool, gpu: bool) {
+        CPU_ON.store(cpu, Ordering::SeqCst);
+        GPU_ON.store(gpu, Ordering::SeqCst);
     }
 
     pub fn spawn() {
@@ -98,7 +101,7 @@ mod platform {
         let mut live = Live::default();
         loop {
             drain_messages();
-            if ENABLED.load(Ordering::SeqCst) {
+            if CPU_ON.load(Ordering::SeqCst) || GPU_ON.load(Ordering::SeqCst) {
                 live.tick();
             } else {
                 live.destroy();
@@ -119,9 +122,15 @@ mod platform {
     }
 
     #[derive(Clone, PartialEq, Eq)]
-    struct Frame {
+    struct Col {
         text: String,
+        label: String,
         color: u32,
+    }
+
+    #[derive(Clone, PartialEq, Eq)]
+    struct Frame {
+        cols: Vec<Col>,
         x: i32,
         y: i32,
         w: i32,
@@ -129,22 +138,23 @@ mod platform {
         dpi: i32,
     }
 
-    #[derive(Clone, PartialEq, Eq)]
     struct Measured {
-        text: String,
+        cols: Vec<(String, String)>,
         dpi: i32,
         tray_h: i32,
         layout: Layout,
     }
 
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone)]
     struct Layout {
+        widths: Vec<i32>,
+        col_gap: i32,
         w: i32,
         temp_px: i32,
         label_px: i32,
         temp_h: i32,
         label_h: i32,
-        gap: i32,
+        gap_y: i32,
     }
 
     impl Live {
@@ -154,17 +164,36 @@ mod platform {
                 self.hide();
                 return;
             };
-            self.sample_if_due();
-            let shown = rounded_celsius(self.celsius);
-            let text = temp_text(shown);
+            if CPU_ON.load(Ordering::SeqCst) {
+                self.sample_if_due();
+            }
             let light = system_uses_light_theme().unwrap_or_else(|| {
                 background_is_light(spot.tray_left.saturating_add(8), spot.y, spot.h)
             });
-            let color = text_color(shown, light);
-            let layout = self.layout_for(&text, spot.dpi, spot.h);
+            let mut cols = Vec::new();
+            if GPU_ON.load(Ordering::SeqCst) {
+                let shown = rounded_celsius(crate::gpu::selected_celsius());
+                cols.push(Col {
+                    text: temp_text(shown),
+                    label: "GPU温度".to_string(),
+                    color: text_color(shown, light),
+                });
+            }
+            if CPU_ON.load(Ordering::SeqCst) {
+                let shown = rounded_celsius(self.celsius);
+                cols.push(Col {
+                    text: temp_text(shown),
+                    label: "CPU温度".to_string(),
+                    color: text_color(shown, light),
+                });
+            }
+            if cols.is_empty() {
+                self.hide();
+                return;
+            }
+            let layout = self.layout_for(&cols, spot.dpi, spot.h);
             let frame = Frame {
-                text,
-                color,
+                cols,
                 x: spot
                     .tray_left
                     .saturating_sub(layout.w)
@@ -225,18 +254,22 @@ mod platform {
             self.sampled = Some(Instant::now());
         }
 
-        fn layout_for(&mut self, text: &str, dpi: i32, tray_h: i32) -> Layout {
+        fn layout_for(&mut self, cols: &[Col], dpi: i32, tray_h: i32) -> Layout {
+            let key: Vec<(String, String)> = cols
+                .iter()
+                .map(|col| (col.text.clone(), col.label.clone()))
+                .collect();
             if let Some(prev) = &self.measured {
-                if prev.text == text && prev.dpi == dpi && prev.tray_h == tray_h {
-                    return prev.layout;
+                if prev.cols == key && prev.dpi == dpi && prev.tray_h == tray_h {
+                    return prev.layout.clone();
                 }
             }
-            let layout = layout_text(text, dpi, tray_h);
+            let layout = layout_columns(cols, dpi, tray_h);
             self.measured = Some(Measured {
-                text: text.to_string(),
+                cols: key,
                 dpi,
                 tray_h,
-                layout,
+                layout: layout.clone(),
             });
             layout
         }
@@ -279,11 +312,7 @@ mod platform {
     }
 
     fn same_pixels(prev: &Frame, next: &Frame) -> bool {
-        prev.text == next.text
-            && prev.color == next.color
-            && prev.w == next.w
-            && prev.h == next.h
-            && prev.dpi == next.dpi
+        prev.cols == next.cols && prev.w == next.w && prev.h == next.h && prev.dpi == next.dpi
     }
 
     fn rounded_celsius(celsius: Option<f64>) -> Option<i64> {
@@ -321,40 +350,38 @@ mod platform {
         }
     }
 
+    struct Drawn {
+        temp: Vec<u16>,
+        label: Vec<u16>,
+        temp_rc: Rect,
+        label_rc: Rect,
+        color: u32,
+        x0: i32,
+        x1: i32,
+    }
+
     fn paint(hwnd: isize, frame: &Frame, layout: &Layout) -> bool {
         let Some(dib) = Dib::new(frame.w, frame.h) else {
             return false;
         };
         let temp_font = create_font(layout.temp_px, frame.dpi, FW_SEMIBOLD);
         let label_font = create_font(layout.label_px, frame.dpi, FW_NORMAL);
-        let temp = wide(&frame.text);
-        let label = wide(LABEL);
-        let (temp_rc, label_rc) = line_rects(layout, frame.h);
-        let themed = draw_theme(
-            hwnd,
-            dib.dc,
-            temp_font,
-            label_font,
-            &temp,
-            &label,
-            temp_rc,
-            label_rc,
-            frame.color,
-        );
-        let themed = themed && has_alpha(dib.bits, dib.count);
-        if themed {
-            tint_to_color(dib.bits, dib.count, frame.color);
-        } else {
-            draw_gdi(
-                &dib,
-                temp_font,
-                label_font,
-                &temp,
-                &label,
-                temp_rc,
-                label_rc,
-                frame.color,
-            );
+        let drawn = drawn_columns(frame, layout);
+        let themed = draw_theme_columns(hwnd, dib.dc, temp_font, label_font, &drawn)
+            && has_alpha(dib.bits, dib.count);
+        if !themed {
+            dib.clear();
+            unsafe {
+                SetBkMode(dib.dc, TRANSPARENT);
+                SetTextColor(dib.dc, COLOR_LIGHT);
+            }
+            for col in &drawn {
+                draw_gdi_line(dib.dc, temp_font, &col.temp, col.temp_rc);
+                draw_gdi_line(dib.dc, label_font, &col.label, col.label_rc);
+            }
+        }
+        for col in &drawn {
+            tint_span(dib.bits, frame.w, frame.h, col.x0, col.x1, col.color);
         }
         let ok = present_window(hwnd, dib.dc, frame.x, frame.y, frame.w, frame.h);
         delete_font(dib.dc, temp_font);
@@ -362,42 +389,61 @@ mod platform {
         ok
     }
 
-    fn line_rects(layout: &Layout, height: i32) -> (Rect, Rect) {
+    fn drawn_columns(frame: &Frame, layout: &Layout) -> Vec<Drawn> {
+        let mut x = 0;
+        let mut out = Vec::with_capacity(frame.cols.len());
+        for (i, col) in frame.cols.iter().enumerate() {
+            let width = layout.widths.get(i).copied().unwrap_or(0);
+            let (temp_rc, label_rc) = line_rects(layout, x, width, frame.h);
+            out.push(Drawn {
+                temp: wide(&col.text),
+                label: wide(&col.label),
+                temp_rc,
+                label_rc,
+                color: col.color,
+                x0: x,
+                x1: x + width,
+            });
+            x += width;
+            if i + 1 != frame.cols.len() {
+                x += layout.col_gap;
+            }
+        }
+        out
+    }
+
+    fn line_rects(layout: &Layout, left: i32, width: i32, height: i32) -> (Rect, Rect) {
         let stack = layout
             .temp_h
-            .saturating_add(layout.gap)
+            .saturating_add(layout.gap_y)
             .saturating_add(layout.label_h);
         let top = ((height - stack) / 2).max(0);
         let temp = Rect {
-            left: 0,
+            left,
             top,
-            right: layout.w,
+            right: left + width,
             bottom: top + layout.temp_h,
         };
         let label = Rect {
-            left: 0,
-            top: temp.bottom + layout.gap,
-            right: layout.w,
-            bottom: temp.bottom + layout.gap + layout.label_h,
+            left,
+            top: temp.bottom + layout.gap_y,
+            right: left + width,
+            bottom: temp.bottom + layout.gap_y + layout.label_h,
         };
         (temp, label)
     }
 
-    fn draw_theme(
+    fn draw_theme_columns(
         hwnd: isize,
         dc: isize,
         temp_font: isize,
         label_font: isize,
-        temp: &[u16],
-        label: &[u16],
-        temp_rc: Rect,
-        label_rc: Rect,
-        color: u32,
+        drawn: &[Drawn],
     ) -> bool {
         let Some(api) = theme_api() else {
             return false;
         };
-        if temp_font == 0 || label_font == 0 {
+        if temp_font == 0 || label_font == 0 || drawn.is_empty() {
             return false;
         }
         unsafe {
@@ -407,11 +453,14 @@ mod platform {
                 return false;
             }
             SetBkMode(dc, TRANSPARENT);
-            let opts = dtt_opts(color);
-            let first = draw_theme_line(api, theme, dc, temp_font, temp, temp_rc, &opts);
-            let second = draw_theme_line(api, theme, dc, label_font, label, label_rc, &opts);
+            let mut ok = true;
+            for col in drawn {
+                let opts = dtt_opts(col.color);
+                ok &= draw_theme_line(api, theme, dc, temp_font, &col.temp, col.temp_rc, &opts);
+                ok &= draw_theme_line(api, theme, dc, label_font, &col.label, col.label_rc, &opts);
+            }
             (api.close)(theme);
-            first && second
+            ok
         }
     }
 
@@ -435,26 +484,6 @@ mod platform {
         }
     }
 
-    fn draw_gdi(
-        dib: &Dib,
-        temp_font: isize,
-        label_font: isize,
-        temp: &[u16],
-        label: &[u16],
-        temp_rc: Rect,
-        label_rc: Rect,
-        color: u32,
-    ) {
-        dib.clear();
-        unsafe {
-            SetBkMode(dib.dc, TRANSPARENT);
-            SetTextColor(dib.dc, COLOR_LIGHT);
-        }
-        draw_gdi_line(dib.dc, temp_font, temp, temp_rc);
-        draw_gdi_line(dib.dc, label_font, label, label_rc);
-        tint_to_color(dib.bits, dib.count, color);
-    }
-
     fn draw_gdi_line(dc: isize, font: isize, text: &[u16], rect: Rect) {
         if font == 0 {
             return;
@@ -473,30 +502,43 @@ mod platform {
         pixels(bits, count).iter().any(|px| px >> 24 != 0)
     }
 
-    fn tint_to_color(bits: *mut u8, count: usize, color: u32) {
+    fn tint_span(bits: *mut u8, width: i32, height: i32, x0: i32, x1: i32, color: u32) {
+        if width <= 0 || height <= 0 {
+            return;
+        }
+        let stride = width as usize;
+        let count = stride.saturating_mul(height as usize);
+        let px = pixels(bits, count);
+        let from_alpha = px.iter().any(|pixel| pixel >> 24 != 0);
         let tr = color & 0xff;
         let tg = (color >> 8) & 0xff;
         let tb = (color >> 16) & 0xff;
-        let px = pixels(bits, count);
-        let from_alpha = px.iter().any(|pixel| pixel >> 24 != 0);
-        for pixel in px {
-            let value = *pixel;
-            let coverage = if from_alpha {
-                value >> 24
-            } else {
-                let b = value & 0xff;
-                let g = (value >> 8) & 0xff;
-                let r = (value >> 16) & 0xff;
-                r.max(g).max(b)
-            };
-            if coverage == 0 {
-                *pixel = 0;
-                continue;
+        let x0 = x0.max(0) as usize;
+        let x1 = (x1.max(0) as usize).min(stride);
+        if x0 >= x1 {
+            return;
+        }
+        for y in 0..height as usize {
+            for x in x0..x1 {
+                let pixel = &mut px[y * stride + x];
+                let value = *pixel;
+                let coverage = if from_alpha {
+                    value >> 24
+                } else {
+                    let b = value & 0xff;
+                    let g = (value >> 8) & 0xff;
+                    let r = (value >> 16) & 0xff;
+                    r.max(g).max(b)
+                };
+                if coverage == 0 {
+                    *pixel = 0;
+                    continue;
+                }
+                let r = tr * coverage / 255;
+                let g = tg * coverage / 255;
+                let b = tb * coverage / 255;
+                *pixel = (coverage << 24) | (r << 16) | (g << 8) | b;
             }
-            let r = tr * coverage / 255;
-            let g = tg * coverage / 255;
-            let b = tb * coverage / 255;
-            *pixel = (coverage << 24) | (r << 16) | (g << 8) | b;
         }
     }
 
@@ -671,41 +713,63 @@ mod platform {
         }
     }
 
-    fn layout_text(text: &str, dpi: i32, tray_h: i32) -> Layout {
-        let (mut temp_px, mut label_px) = css_sizes(dpi, tray_h);
+    fn layout_columns(cols: &[Col], dpi: i32, tray_h: i32) -> Layout {
+        let (temp_px, label_px, temp_h, label_h, gap_y) = fit_fonts(dpi, tray_h);
+        let col_gap = css_device(8, dpi);
         let dc = unsafe { CreateCompatibleDC(0) };
-        let layout = loop {
-            let temp_font = create_font(temp_px, dpi, FW_SEMIBOLD);
-            let label_font = create_font(label_px, dpi, FW_NORMAL);
-            let (temp_w, _) = text_extent(dc, temp_font, text);
-            let (label_w, _) = text_extent(dc, label_font, LABEL);
-            delete_font(dc, temp_font);
-            delete_font(dc, label_font);
-            let temp_h = line_box(temp_px, dpi);
-            let label_h = line_box(label_px, dpi);
-            let gap = css_device(1, dpi);
-            if temp_h + gap + label_h <= tray_h || temp_px <= 11 {
-                break Layout {
-                    w: temp_w.max(label_w).saturating_add(4).clamp(8, 800),
-                    temp_px,
-                    label_px,
-                    temp_h,
-                    label_h,
-                    gap,
-                };
-            }
-            temp_px -= 1;
-            label_px = (temp_px * 11 / 15).max(8);
-        };
+        let temp_font = create_font(temp_px, dpi, FW_SEMIBOLD);
+        let label_font = create_font(label_px, dpi, FW_NORMAL);
+        let mut widths = Vec::with_capacity(cols.len());
+        for col in cols {
+            let (temp_w, _) = text_extent(dc, temp_font, &col.text);
+            let (label_w, _) = text_extent(dc, label_font, &col.label);
+            widths.push(temp_w.max(label_w).saturating_add(4).clamp(8, 800));
+        }
+        delete_font(dc, temp_font);
+        delete_font(dc, label_font);
         if dc != 0 {
             unsafe { DeleteDC(dc) };
         }
-        layout
+        let gaps = col_gap.saturating_mul(cols.len().saturating_sub(1) as i32);
+        let w = widths
+            .iter()
+            .copied()
+            .sum::<i32>()
+            .saturating_add(gaps)
+            .clamp(8, 1600);
+        Layout {
+            widths,
+            col_gap,
+            w,
+            temp_px,
+            label_px,
+            temp_h,
+            label_h,
+            gap_y,
+        }
+    }
+
+    fn fit_fonts(dpi: i32, tray_h: i32) -> (i32, i32, i32, i32, i32) {
+        let (mut temp_px, mut label_px) = css_sizes(dpi, tray_h);
+        loop {
+            let temp_h = line_box(temp_px, dpi);
+            let label_h = line_box(label_px, dpi);
+            let gap_y = css_device(1, dpi);
+            if temp_h + gap_y + label_h <= tray_h || temp_px <= 11 {
+                return (temp_px, label_px, temp_h, label_h, gap_y);
+            }
+            temp_px -= 1;
+            label_px = (temp_px * 11 / 15).max(8);
+        }
     }
 
     fn css_sizes(dpi: i32, tray_h: i32) -> (i32, i32) {
         let logical = mul_div(tray_h, 96, dpi.max(96));
-        if logical < 42 { (13, 10) } else { (15, 11) }
+        if logical < 42 {
+            (13, 10)
+        } else {
+            (15, 11)
+        }
     }
 
     fn css_device(px: i32, dpi: i32) -> i32 {

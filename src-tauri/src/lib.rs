@@ -14,6 +14,7 @@ use tauri::{
 };
 
 mod fps;
+mod gpu;
 mod instance;
 mod settings;
 mod taskbar;
@@ -68,6 +69,7 @@ struct Stats {
     up_bps: f64,
     down_bps: f64,
     cpu_c: Option<f64>,
+    gpu_c: Option<f64>,
     fps: Option<f64>,
     refresh_hz: Option<f64>,
 }
@@ -645,6 +647,7 @@ fn get_stats(state: State<MeterState>) -> Stats {
         up_bps: up as f64 / dt,
         down_bps: down as f64 / dt,
         cpu_c,
+        gpu_c: gpu::selected_celsius(),
         fps,
         refresh_hz,
     }
@@ -952,6 +955,11 @@ fn save_settings(
     Ok(settings)
 }
 
+#[tauri::command]
+fn list_gpus() -> Vec<gpu::GpuInfo> {
+    gpu::list()
+}
+
 fn open_settings(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("settings") {
         let _ = win.show();
@@ -1063,7 +1071,8 @@ pub fn run() {
             set_hover,
             get_settings,
             save_settings,
-            open_ball_menu
+            open_ball_menu,
+            list_gpus
         ])
         .setup(|app| {
             let loaded = settings::load(app.handle());
@@ -1142,6 +1151,7 @@ pub fn run() {
             }
 
             spawn_hover_watcher(app.handle().clone());
+            gpu::spawn();
             taskbar::spawn(app.handle().clone());
 
             if loaded.configured {

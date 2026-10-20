@@ -15,6 +15,18 @@ pub struct Settings {
     pub show_fps: bool,
     #[serde(default = "enabled")]
     pub taskbar_temp: bool,
+    #[serde(default = "enabled")]
+    pub taskbar_gpu: bool,
+    #[serde(default)]
+    pub gpu_id: String,
+    #[serde(default = "enabled")]
+    pub overlay_locked: bool,
+    #[serde(default)]
+    pub overlay_cpu: bool,
+    #[serde(default)]
+    pub overlay_gpu: bool,
+    #[serde(default)]
+    pub overlay_fps: bool,
 }
 
 fn enabled() -> bool {
@@ -29,6 +41,12 @@ impl Default for Settings {
             floating: true,
             show_fps: true,
             taskbar_temp: true,
+            taskbar_gpu: true,
+            gpu_id: String::new(),
+            overlay_locked: true,
+            overlay_cpu: false,
+            overlay_gpu: false,
+            overlay_fps: false,
         }
     }
 }
@@ -60,7 +78,8 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
 pub fn apply(app: &AppHandle, settings: &Settings) {
     let _ = set_autostart(settings.autostart);
     apply_floating(app, settings.floating);
-    crate::taskbar::set_enabled(app, settings.taskbar_temp);
+    crate::gpu::set_prefer(settings.gpu_id.clone());
+    crate::taskbar::set_sources(settings.taskbar_temp, settings.taskbar_gpu);
 }
 
 fn apply_floating(app: &AppHandle, enabled: bool) {
@@ -140,7 +159,7 @@ mod autostart {
                 RegDeleteValueW(key, name.as_ptr())
             };
             RegCloseKey(key);
-            if result != 0 && !( !enable && result == ERROR_FILE_NOT_FOUND) {
+            if result != 0 && !(!enable && result == ERROR_FILE_NOT_FOUND) {
                 return Err(format!("无法更新开机启动项 ({result})"));
             }
             Ok(())
