@@ -9,46 +9,104 @@
   <body>
     <main>
       <header>
-        <img class="logo" src="logo.png" alt="Meng meter" />
+        <img class="logo" src="logo.png" alt="" />
         <div>
           <h1>Meng meter</h1>
           <p id="kicker">第一次打开，选择要启用的功能</p>
         </div>
       </header>
 
-      <label class="option">
-        <input type="checkbox" id="autostart" />
-        <span class="copy">
-          <strong>开机自启</strong>
-          <small>登录 Windows 后自动运行</small>
-        </span>
-      </label>
+      <div class="panels">
+        <section>
+          <h2>常规</h2>
+          <div class="card">
+            <label class="row">
+              <span class="copy">
+                <strong>开机自启</strong>
+                <small>登录 Windows 后自动运行</small>
+              </span>
+              <input class="switch" type="checkbox" id="autostart" />
+            </label>
+            <div class="row">
+              <span class="copy">
+                <strong>显卡</strong>
+                <small>未手动选择时使用独立显卡</small>
+              </span>
+              <select id="gpuId" aria-label="显卡">
+                <option value="">自动（独显）</option>
+              </select>
+            </div>
+          </div>
+        </section>
 
-      <label class="option">
-        <input type="checkbox" id="floating" checked />
-        <span class="copy">
-          <strong>桌面悬浮球</strong>
-          <small>贴边显示内存与温度，悬停查看网速</small>
-        </span>
-      </label>
+        <section>
+          <h2>桌面悬浮球</h2>
+          <div class="card">
+            <label class="row">
+              <span class="copy">
+                <strong>显示悬浮球</strong>
+                <small>贴边显示内存与温度，悬停查看网速</small>
+              </span>
+              <input class="switch" type="checkbox" id="floating" checked />
+            </label>
+            <label class="row sub" id="fpsRow">
+              <span class="copy">
+                <strong>显示 FPS</strong>
+                <small>出现在悬浮球中间</small>
+              </span>
+              <input class="switch" type="checkbox" id="showFps" checked />
+            </label>
+          </div>
+        </section>
 
-      <label class="option">
-        <input type="checkbox" id="showFps" checked />
-        <span class="copy">
-          <strong>FPS 显示</strong>
-          <small>在悬浮球中间显示前台帧率</small>
-        </span>
-      </label>
+        <section>
+          <h2>任务栏</h2>
+          <div class="card">
+            <div class="chips chips-2" role="group" aria-label="任务栏">
+              <label class="chip" title="显示在系统托盘左侧">
+                <input type="checkbox" id="taskbarTemp" checked />
+                <span>CPU 温度</span>
+              </label>
+              <label class="chip" title="显示在 CPU 温度左边，不进入悬浮球">
+                <input type="checkbox" id="taskbarGpu" checked />
+                <span>显卡温度</span>
+              </label>
+            </div>
+            <p class="note">显示在系统托盘左侧；显卡温度不进入悬浮球</p>
+          </div>
+        </section>
 
-      <label class="option">
-        <input type="checkbox" id="taskbarTemp" checked />
-        <span class="copy">
-          <strong>任务栏 CPU 温度</strong>
-          <small>显示在系统托盘左侧</small>
-        </span>
-      </label>
+        <section>
+          <h2>悬浮组件</h2>
+          <div class="card">
+            <div class="chips" role="group" aria-label="悬浮组件">
+              <label class="chip" title="在桌面上单独显示 CPU 温度">
+                <input type="checkbox" id="overlayCpu" />
+                <span>CPU</span>
+              </label>
+              <label class="chip" title="在桌面上单独显示显卡温度">
+                <input type="checkbox" id="overlayGpu" />
+                <span>显卡</span>
+              </label>
+              <label class="chip" title="在桌面上单独显示前台帧率">
+                <input type="checkbox" id="overlayFps" />
+                <span>FPS</span>
+              </label>
+            </div>
+            <label class="row">
+              <span class="copy">
+                <strong>锁定布局</strong>
+                <small>锁定后不能移动、缩放或改外观</small>
+              </span>
+              <input class="switch" type="checkbox" id="overlayLocked" checked />
+            </label>
+          </div>
+        </section>
+      </div>
 
-      <button id="save" type="button">开始使用</button>
+      <footer>
+        <button id="done" type="button">开始使用</button>
+      </footer>
     </main>
     <script src="settings.js"></script>
   </body>
