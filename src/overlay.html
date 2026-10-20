@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN" data-locked="on" data-shown="on">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Meng meter</title>
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body>
+    <button id="eye" type="button" aria-label="隐藏组件" title="隐藏组件">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path class="brow hair-l" d="M9 8.7 6.7 6.3" />
+        <path class="brow hair-m" d="M12 7.9 12 5.3" />
+        <path class="brow hair-r" d="M15 8.7 17.3 6.3" />
+        <g class="eye-open">
+          <path class="outline" d="M2.2 13.2S6 8.2 12 8.2 21.8 13.2 21.8 13.2 18 18.2 12 18.2 2.2 13.2 2.2 13.2Z" />
+          <circle class="pupil" cx="12" cy="13.2" r="2.4" />
+        </g>
+        <path class="shut" d="M3.2 12.2c2.3 1.3 4.8 2.15 8.8 2.15s6.5-.85 8.8-2.15" />
+      </svg>
+    </button>
+    <div id="frame">
+      <div class="grid" aria-hidden="true"></div>
+      <div class="readout">
+        <b id="value">--</b>
+        <small id="caption">CPU</small>
+      </div>
+      <i class="corner nw" data-corner="nw"></i>
+      <i class="corner ne" data-corner="ne"></i>
+      <i class="corner sw" data-corner="sw"></i>
+      <i class="corner se" data-corner="se"></i>
+      <i class="joint n" data-edge="n"></i>
+      <i class="joint e" data-edge="e"></i>
+      <i class="joint s" data-edge="s"></i>
+      <i class="joint w" data-edge="w"></i>
+    </div>
+    <div id="toolbar">
+      <input id="color" type="color" value="#ffffff" title="颜色" aria-label="颜色" />
+      <span>透明度</span>
+      <input id="opacity" type="range" min="25" max="100" value="92" title="透明度" aria-label="透明度" />
+    </div>
+    <script src="overlay.js"></script>
+  </body>
+</html>

@@ -40,7 +40,9 @@ pub fn render(history: &[f64]) -> Image<'static> {
         for x in 0..size {
             let fx = x as f32 + 0.5;
             let fy = y as f32 + 0.5;
-            let frame = cover(-rbox(fx, fy, frame_min, frame_min, frame_max, frame_max, radius));
+            let frame = cover(-rbox(
+                fx, fy, frame_min, frame_min, frame_max, frame_max, radius,
+            ));
             if frame <= 0.0 {
                 continue;
             }

@@ -80,6 +80,7 @@ pub fn apply(app: &AppHandle, settings: &Settings) {
     apply_floating(app, settings.floating);
     crate::gpu::set_prefer(settings.gpu_id.clone());
     crate::taskbar::set_sources(settings.taskbar_temp, settings.taskbar_gpu);
+    crate::overlay::apply(app, settings);
 }
 
 fn apply_floating(app: &AppHandle, enabled: bool) {

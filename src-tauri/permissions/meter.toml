@@ -9,5 +9,13 @@ commands.allow = [
   "set_hover",
   "get_settings",
   "save_settings",
-  "open_ball_menu"
+  "close_settings",
+  "open_ball_menu",
+  "list_gpus",
+  "get_overlay",
+  "save_overlay_style",
+  "overlay_begin_drag",
+  "overlay_begin_resize",
+  "set_overlay_locked",
+  "set_overlay_shown"
 ]

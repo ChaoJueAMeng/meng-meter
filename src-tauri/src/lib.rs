@@ -6,7 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::{Networks, System};
 use tauri::menu::{Menu, MenuItem};
-use tauri::tray::TrayIconBuilder;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::window::Color;
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, State,
@@ -16,6 +16,7 @@ use tauri::{
 mod fps;
 mod gpu;
 mod instance;
+mod overlay;
 mod settings;
 mod taskbar;
 mod trayicon;
@@ -41,8 +42,9 @@ struct Drag {
 }
 
 struct FpsMenus {
-    tray: MenuItem<Wry>,
     ball: MenuItem<Wry>,
+    tray_lock: MenuItem<Wry>,
+    ball_lock: MenuItem<Wry>,
     popup: Menu<Wry>,
 }
 
@@ -391,8 +393,53 @@ fn sync_fps_menus(state: &MeterState) {
     let Some(menus) = menus.as_ref() else {
         return;
     };
-    let _ = menus.tray.set_text(label);
     let _ = menus.ball.set_text(label);
+}
+
+fn overlay_locked(state: &MeterState) -> bool {
+    state
+        .settings
+        .lock()
+        .ok()
+        .map(|settings| settings.overlay_locked)
+        .unwrap_or(true)
+}
+
+fn lock_label(locked: bool) -> &'static str {
+    if locked {
+        "解锁悬浮组件"
+    } else {
+        "锁定悬浮组件"
+    }
+}
+
+fn sync_lock_menus(state: &MeterState) {
+    let label = lock_label(overlay_locked(state));
+    let Ok(menus) = state.menus.lock() else {
+        return;
+    };
+    let Some(menus) = menus.as_ref() else {
+        return;
+    };
+    let _ = menus.tray_lock.set_text(label);
+    let _ = menus.ball_lock.set_text(label);
+}
+
+fn publish_settings(
+    app: &AppHandle,
+    state: &MeterState,
+    settings: settings::Settings,
+) -> Result<(), String> {
+    settings::save(app, &settings)?;
+    if let Ok(mut guard) = state.settings.lock() {
+        *guard = settings.clone();
+    }
+    settings::apply(app, &settings);
+    sync_fps_menus(state);
+    sync_lock_menus(state);
+    emit_fps_display(app, settings.show_fps);
+    let _ = app.emit("overlay-lock", settings.overlay_locked);
+    Ok(())
 }
 
 fn emit_fps_display(app: &AppHandle, show: bool) {
@@ -938,26 +985,125 @@ fn save_settings(
     mut settings: settings::Settings,
 ) -> Result<settings::Settings, String> {
     settings.configured = true;
-    settings::save(&app, &settings)?;
-    if let Ok(mut g) = state.settings.lock() {
-        *g = settings.clone();
-    }
-    settings::apply(&app, &settings);
-    sync_fps_menus(&state);
-    emit_fps_display(&app, settings.show_fps);
-    if let Some(win) = app.get_webview_window("settings") {
-        let _ = win.hide();
-    }
+    publish_settings(&app, &state, settings.clone())?;
     if settings.floating {
         apply_mode(&app, &state, true);
-        maybe_collapse_later(app.clone());
     }
     Ok(settings)
 }
 
 #[tauri::command]
+fn close_settings(app: AppHandle, state: State<MeterState>) {
+    if let Some(win) = app.get_webview_window("settings") {
+        let _ = win.hide();
+    }
+    let floating = state
+        .settings
+        .lock()
+        .ok()
+        .map(|settings| settings.floating)
+        .unwrap_or(false);
+    if floating {
+        apply_mode(&app, &state, true);
+        maybe_collapse_later(app.clone());
+    }
+}
+
+#[tauri::command]
 fn list_gpus() -> Vec<gpu::GpuInfo> {
     gpu::list()
+}
+
+#[tauri::command]
+fn get_overlay(
+    app: AppHandle,
+    state: State<MeterState>,
+    kind: String,
+) -> Option<overlay::OverlayView> {
+    let (locked, shown) = state
+        .settings
+        .lock()
+        .map(|settings| (settings.overlay_locked, overlay_shown(&settings, &kind)))
+        .unwrap_or((true, false));
+    overlay::view(&app, &kind, locked, shown)
+}
+
+fn overlay_shown(settings: &settings::Settings, kind: &str) -> bool {
+    match kind {
+        "gpu" => settings.overlay_gpu,
+        "fps" => settings.overlay_fps,
+        _ => settings.overlay_cpu,
+    }
+}
+
+#[tauri::command]
+fn save_overlay_style(
+    app: AppHandle,
+    kind: String,
+    color: String,
+    opacity: f64,
+) -> Result<(), String> {
+    overlay::save_style(&app, &kind, &color, opacity)
+}
+
+#[tauri::command]
+fn overlay_begin_drag(app: AppHandle, kind: String) {
+    overlay::begin_drag(app, kind);
+}
+
+#[tauri::command]
+fn overlay_begin_resize(app: AppHandle, kind: String, corner: String) {
+    overlay::begin_resize(app, kind, corner);
+}
+
+#[tauri::command]
+fn set_overlay_locked(
+    app: AppHandle,
+    state: State<MeterState>,
+    locked: bool,
+) -> Result<(), String> {
+    let mut next = state.settings.lock().map(|g| g.clone()).unwrap_or_default();
+    next.overlay_locked = locked;
+    settings::save(&app, &next)?;
+    if let Ok(mut guard) = state.settings.lock() {
+        *guard = next.clone();
+    }
+    sync_lock_menus(&state);
+    overlay::apply(&app, &next);
+    let _ = app.emit("overlay-lock", next.overlay_locked);
+    Ok(())
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OverlayShown {
+    kind: String,
+    shown: bool,
+}
+
+#[tauri::command]
+fn set_overlay_shown(
+    app: AppHandle,
+    state: State<MeterState>,
+    kind: String,
+    shown: bool,
+) -> Result<(), String> {
+    if !matches!(kind.as_str(), "cpu" | "gpu" | "fps") {
+        return Err("未知悬浮组件".into());
+    }
+    let mut next = state.settings.lock().map(|g| g.clone()).unwrap_or_default();
+    match kind.as_str() {
+        "gpu" => next.overlay_gpu = shown,
+        "fps" => next.overlay_fps = shown,
+        _ => next.overlay_cpu = shown,
+    }
+    settings::save(&app, &next)?;
+    if let Ok(mut guard) = state.settings.lock() {
+        *guard = next.clone();
+    }
+    overlay::apply(&app, &next);
+    let _ = app.emit("overlay-shown", OverlayShown { kind, shown });
+    Ok(())
 }
 
 fn open_settings(app: &AppHandle) {
@@ -1071,8 +1217,15 @@ pub fn run() {
             set_hover,
             get_settings,
             save_settings,
+            close_settings,
             open_ball_menu,
-            list_gpus
+            list_gpus,
+            get_overlay,
+            save_overlay_style,
+            overlay_begin_drag,
+            overlay_begin_resize,
+            set_overlay_locked,
+            set_overlay_shown
         ])
         .setup(|app| {
             let loaded = settings::load(app.handle());
@@ -1081,22 +1234,25 @@ pub fn run() {
             }
 
             let label = fps_label(loaded.show_fps);
+            let lock = lock_label(loaded.overlay_locked);
             let settings_item = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let show = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
-            let tray_fps = MenuItem::with_id(app, "fps", label, true, None::<&str>)?;
+            let tray_lock = MenuItem::with_id(app, "overlay-lock", lock, true, None::<&str>)?;
             let ball_settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
             let ball_quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let ball_fps = MenuItem::with_id(app, "fps", label, true, None::<&str>)?;
-            let popup = Menu::with_items(app, &[&ball_settings, &ball_fps, &ball_quit])?;
+            let ball_lock = MenuItem::with_id(app, "overlay-lock", lock, true, None::<&str>)?;
+            let popup =
+                Menu::with_items(app, &[&ball_settings, &ball_fps, &ball_lock, &ball_quit])?;
             if let Ok(mut menus) = app.state::<MeterState>().menus.lock() {
                 *menus = Some(FpsMenus {
-                    tray: tray_fps.clone(),
                     ball: ball_fps,
+                    tray_lock: tray_lock.clone(),
+                    ball_lock,
                     popup,
                 });
             }
-            let menu = Menu::with_items(app, &[&settings_item, &tray_fps, &show, &quit])?;
+            let menu = Menu::with_items(app, &[&settings_item, &tray_lock, &quit])?;
             let percent = app
                 .state::<MeterState>()
                 .sys
@@ -1107,20 +1263,34 @@ pub fn run() {
             let _ = TrayIconBuilder::with_id(trayicon::ID)
                 .icon(trayicon::render(&[percent]))
                 .menu(&menu)
-                .show_menu_on_left_click(true)
+                .show_menu_on_left_click(false)
                 .tooltip(tray_tooltip(percent))
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        open_settings(tray.app_handle());
+                    }
+                })
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "quit" => app.exit(0),
                     "settings" => open_settings(app),
-                    "show" => {
-                        let st = app.state::<MeterState>();
-                        show_main_if_enabled(app, &st);
-                    }
                     "fps" => {
                         let handle = app.clone();
                         thread::spawn(move || {
                             let st = handle.state::<MeterState>();
                             toggle_show_fps(&handle, &st);
+                        });
+                    }
+                    "overlay-lock" => {
+                        let handle = app.clone();
+                        thread::spawn(move || {
+                            let st = handle.state::<MeterState>();
+                            let locked = overlay_locked(&st);
+                            let _ = set_overlay_locked(handle.clone(), st, !locked);
                         });
                     }
                     _ => {}

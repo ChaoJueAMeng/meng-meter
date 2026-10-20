@@ -1,0 +1,390 @@
+:root {
+  --pad: 10px;
+  --bar: 44px;
+  --box-w: 128px;
+  --box-h: 72px;
+  --ink: #ffffff;
+  --fade: 0.92;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+
+#frame {
+  position: absolute;
+  inset: 0;
+  container-type: size;
+}
+
+html[data-locked="off"] #frame {
+  top: var(--pad);
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  width: var(--box-w);
+  height: var(--box-h);
+  transform: translateX(-50%);
+  cursor: move;
+}
+
+.grid,
+.corner {
+  display: none;
+}
+
+html[data-locked="off"] .grid {
+  display: block;
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.grid::before,
+.grid::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.grid::before {
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.grid::after {
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+html[data-locked="off"] .corner {
+  display: block;
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  z-index: 3;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.85));
+}
+
+.corner.nw {
+  left: -2px;
+  top: -2px;
+  border-top: 3px solid #fff;
+  border-left: 3px solid #fff;
+  cursor: nwse-resize;
+}
+
+.corner.ne {
+  right: -2px;
+  top: -2px;
+  border-top: 3px solid #fff;
+  border-right: 3px solid #fff;
+  cursor: nesw-resize;
+}
+
+.corner.sw {
+  left: -2px;
+  bottom: -2px;
+  border-bottom: 3px solid #fff;
+  border-left: 3px solid #fff;
+  cursor: nesw-resize;
+}
+
+.corner.se {
+  right: -2px;
+  bottom: -2px;
+  border-bottom: 3px solid #fff;
+  border-right: 3px solid #fff;
+  cursor: nwse-resize;
+}
+
+.joint {
+  display: none;
+}
+
+html[data-locked="off"] .joint {
+  display: block;
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  z-index: 4;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.85));
+}
+
+.joint.n::before,
+.joint.s::before,
+.joint.e::before,
+.joint.w::before {
+  content: "";
+  position: absolute;
+  background: #fff;
+}
+
+.joint.n::before,
+.joint.s::before {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3px;
+  margin-top: -1.5px;
+}
+
+.joint.e::before,
+.joint.w::before {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 3px;
+  margin-left: -1.5px;
+}
+
+.joint.n,
+.joint.s {
+  left: 50%;
+  transform: translateX(-50%);
+  cursor: ns-resize;
+}
+
+.joint.n {
+  top: -9px;
+}
+
+.joint.s {
+  bottom: -9px;
+}
+
+.joint.e,
+.joint.w {
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: ew-resize;
+}
+
+.joint.e {
+  right: -9px;
+}
+
+.joint.w {
+  left: -9px;
+}
+
+#eye {
+  display: none;
+  position: absolute;
+  z-index: 6;
+  top: calc(var(--pad) + (var(--box-h) - 22px) / 2);
+  left: calc(50% - (var(--box-w) / 2) - 34px);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.94);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.35),
+    0 4px 10px rgba(0, 0, 0, 0.28);
+  color: #fff;
+  cursor: pointer;
+  place-items: center;
+}
+
+html[data-locked="off"] #eye {
+  display: grid;
+}
+
+#eye svg {
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+}
+
+#eye .outline,
+#eye .shut,
+#eye .brow {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#eye .brow {
+  stroke-width: 1.45;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+html[data-shown="off"] #eye .hair-l,
+html[data-shown="off"] #eye .hair-r {
+  transform: translateY(6.2px) scaleY(-1);
+}
+
+html[data-shown="off"] #eye .hair-m {
+  transform: translateY(7.2px) scaleY(-1);
+}
+
+#eye .pupil {
+  fill: #fff;
+  transform-origin: 12px 13.2px;
+  transition:
+    transform 0.28s ease,
+    opacity 0.28s ease;
+}
+
+#eye .eye-open {
+  transform-origin: 12px 13.2px;
+  transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#eye .shut {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+html[data-shown="off"] #eye .eye-open {
+  transform: scaleY(0.08);
+}
+
+html[data-shown="off"] #eye .pupil {
+  opacity: 0;
+  transform: scale(0.25);
+}
+
+html[data-shown="off"] #eye .shut {
+  opacity: 1;
+}
+
+#eye.blink .eye-open {
+  animation: eye-open 0.34s ease;
+}
+
+html[data-shown="off"] #eye.blink .eye-open {
+  animation: eye-shut 0.34s ease;
+}
+
+@keyframes eye-open {
+  0% {
+    transform: scaleY(0.08);
+  }
+  42% {
+    transform: scaleY(0.05);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes eye-shut {
+  0% {
+    transform: scaleY(1);
+  }
+  100% {
+    transform: scaleY(0.08);
+  }
+}
+
+html[data-locked="off"][data-shown="off"] .readout {
+  opacity: calc(var(--fade) * 0.25);
+}
+
+html[data-locked="off"][data-shown="off"] .grid,
+html[data-locked="off"][data-shown="off"] .corner,
+html[data-locked="off"][data-shown="off"] .joint {
+  opacity: 0.48;
+}
+
+.readout,
+.grid,
+.corner,
+.joint {
+  transition: opacity 0.28s ease;
+}
+
+.readout {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  opacity: var(--fade);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.72),
+    0 0 1px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+#value {
+  font-size: min(52cqh, 46cqw);
+  font-weight: 700;
+  line-height: 0.95;
+  font-variant-numeric: tabular-nums;
+}
+
+#caption {
+  margin-top: 2px;
+  font-size: min(18cqh, 16cqw);
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  opacity: 0.86;
+}
+
+#toolbar {
+  display: none;
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 6px;
+  height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #fff;
+  font-size: 11px;
+  box-sizing: border-box;
+}
+
+html[data-locked="off"] #toolbar {
+  display: flex;
+}
+
+#color {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  flex: 0 0 22px;
+}
+
+#toolbar span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+#opacity {
+  flex: 1 0 72px;
+  min-width: 72px;
+  accent-color: #fff;
+}
