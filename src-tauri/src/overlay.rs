@@ -129,6 +129,11 @@ pub fn begin_drag(app: AppHandle, kind: String) {
     let Ok(pos0) = win.outer_position() else {
         return;
     };
+    let Some(geom) = geom_of(&app, &kind) else {
+        return;
+    };
+    let content_w = geom.w;
+    let content_h = geom.h;
     if DRAGGING.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -150,9 +155,15 @@ pub fn begin_drag(app: AppHandle, kind: String) {
                 let Ok(cursor) = win.cursor_position() else {
                     return;
                 };
+                let scale = win.scale_factor().unwrap_or(1.0).max(0.01);
+                let pad = (PAD * scale).round() as i32;
+                let inset = frame_left_px(content_w, scale);
+                let box_w = (content_w * scale).round() as i32;
+                let box_h = (content_h * scale).round() as i32;
                 let x = pos0.x + cursor.x as i32 - c0x;
                 let y = pos0.y + cursor.y as i32 - c0y;
-                let _ = win.set_position(PhysicalPosition::new(x, y));
+                let (bx, by) = clamp_box_to_screen(&win, x + inset, y + pad, box_w, box_h, true);
+                let _ = win.set_position(PhysicalPosition::new(bx - inset, by - pad));
             });
         }
         if !LOCKED.load(Ordering::SeqCst) {
@@ -229,6 +240,10 @@ pub fn begin_resize(app: AppHandle, kind: String, corner: String) {
                     "w" => (fixed_left + dx, fixed_top, fixed_right, fixed_bottom),
                     _ => return,
                 };
+                let (sx, sy, sw, sh) =
+                    screen_rect(&win, (left + right) / 2, (top + bottom) / 2, true);
+                let (left, top, right, bottom) =
+                    clamp_resize_edges(corner2.as_str(), left, top, right, bottom, sx, sy, sw, sh);
                 let w = ((right - left) as f64 / scale).round().clamp(MIN_W, MAX_W);
                 let h = ((bottom - top) as f64 / scale).round().clamp(MIN_H, MAX_H);
                 let wp = (w * scale).round() as i32;
@@ -283,7 +298,10 @@ fn place(app: &AppHandle, kind: &str, geom: &OverlayGeom, visible: bool, locked:
         return;
     };
     let scale = win.scale_factor().unwrap_or(1.0).max(0.01);
-    let (x, y) = outer_origin(geom.x, geom.y, geom.w, scale, locked);
+    let box_w = (geom.w * scale).round() as i32;
+    let box_h = (geom.h * scale).round() as i32;
+    let (bx, by) = clamp_box_to_screen(&win, geom.x, geom.y, box_w, box_h, false);
+    let (x, y) = outer_origin(bx, by, geom.w, scale, locked);
     let (w, h) = outer_size(geom.w, geom.h, locked);
     sync_page(&win, locked, visible, geom);
     let _ = win.set_ignore_cursor_events(locked);
@@ -367,15 +385,24 @@ fn commit_origin(app: &AppHandle, kind: &str) {
     let scale = win.scale_factor().unwrap_or(1.0).max(0.01);
     let pad = (PAD * scale).round() as i32;
     let inset = frame_left_px(current.w, scale);
+    let box_w = (current.w * scale).round() as i32;
+    let box_h = (current.h * scale).round() as i32;
+    let (x, y) = clamp_box_to_screen(&win, pos.x + inset, pos.y + pad, box_w, box_h, false);
     update(app, kind, |geom| {
-        geom.x = pos.x + inset;
-        geom.y = pos.y + pad;
+        geom.x = x;
+        geom.y = y;
     });
 }
 
-fn commit_box(app: &AppHandle, kind: &str, x: i32, y: i32, w: f64, h: f64) {
+fn commit_box(app: &AppHandle, kind: &str, mut x: i32, mut y: i32, w: f64, h: f64) {
     if LOCKED.load(Ordering::SeqCst) {
         return;
+    }
+    if let Some(win) = window(app, kind) {
+        let scale = win.scale_factor().unwrap_or(1.0).max(0.01);
+        let box_w = (w * scale).round() as i32;
+        let box_h = (h * scale).round() as i32;
+        (x, y) = clamp_box_to_screen(&win, x, y, box_w, box_h, false);
     }
     update(app, kind, |geom| {
         geom.x = x;
@@ -424,6 +451,80 @@ fn outer_size(w: f64, h: f64, locked: bool) -> (f64, f64) {
     } else {
         (outer_width(w), h + PAD + BAR)
     }
+}
+
+fn clamp_box_to_screen(
+    win: &WebviewWindow,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    follow_cursor: bool,
+) -> (i32, i32) {
+    let (sx, sy, sw, sh) = screen_rect(win, x + w / 2, y + h / 2, follow_cursor);
+    clamp_origin(x, y, w, h, sx, sy, sw, sh)
+}
+
+fn screen_rect(win: &WebviewWindow, x: i32, y: i32, follow_cursor: bool) -> (i32, i32, i32, i32) {
+    let cursor_mon = if follow_cursor {
+        win.cursor_position()
+            .ok()
+            .and_then(|cursor| win.monitor_from_point(cursor.x, cursor.y).ok().flatten())
+    } else {
+        None
+    };
+    let monitor = cursor_mon
+        .or_else(|| win.monitor_from_point(x as f64, y as f64).ok().flatten())
+        .or_else(|| win.current_monitor().ok().flatten())
+        .or_else(|| win.primary_monitor().ok().flatten());
+    match monitor {
+        Some(monitor) => {
+            let pos = monitor.position();
+            let size = monitor.size();
+            (pos.x, pos.y, size.width as i32, size.height as i32)
+        }
+        None => (0, 0, 1920, 1080),
+    }
+}
+
+fn clamp_origin(x: i32, y: i32, w: i32, h: i32, sx: i32, sy: i32, sw: i32, sh: i32) -> (i32, i32) {
+    let max_x = (sx + sw - w).max(sx);
+    let max_y = (sy + sh - h).max(sy);
+    (x.clamp(sx, max_x), y.clamp(sy, max_y))
+}
+
+fn clamp_resize_edges(
+    corner: &str,
+    mut left: i32,
+    mut top: i32,
+    mut right: i32,
+    mut bottom: i32,
+    sx: i32,
+    sy: i32,
+    sw: i32,
+    sh: i32,
+) -> (i32, i32, i32, i32) {
+    let sr = sx + sw;
+    let sb = sy + sh;
+    match corner {
+        "e" | "se" | "ne" => {
+            right = right.clamp(left, sr.max(left));
+        }
+        "w" | "sw" | "nw" => {
+            left = left.clamp(sx.min(right), right);
+        }
+        _ => {}
+    }
+    match corner {
+        "s" | "se" | "sw" => {
+            bottom = bottom.clamp(top, sb.max(top));
+        }
+        "n" | "ne" | "nw" => {
+            top = top.clamp(sy.min(bottom), bottom);
+        }
+        _ => {}
+    }
+    (left, top, right, bottom)
 }
 
 fn window<'a>(app: &'a AppHandle, kind: &str) -> Option<WebviewWindow> {
@@ -572,7 +673,9 @@ fn valid_color(color: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{frame_left, outer_size, BAR, MIN_W, PAD, TOOLBAR_MIN_W};
+    use super::{
+        clamp_origin, clamp_resize_edges, frame_left, outer_size, BAR, MIN_W, PAD, TOOLBAR_MIN_W,
+    };
 
     #[test]
     fn narrow_frame_stays_narrow() {
@@ -586,5 +689,43 @@ mod tests {
         assert_eq!(wide, 300.0 + super::SIDE * 2.0);
         assert_eq!(frame_left(88.0), (TOOLBAR_MIN_W - 88.0) / 2.0);
         assert_eq!(frame_left(300.0), super::SIDE);
+    }
+
+    #[test]
+    fn drag_keeps_box_inside_screen() {
+        let screen = (0, 0, 1920, 1080);
+        assert_eq!(
+            clamp_origin(100, 80, 128, 72, screen.0, screen.1, screen.2, screen.3),
+            (100, 80)
+        );
+        assert_eq!(
+            clamp_origin(-40, -20, 128, 72, screen.0, screen.1, screen.2, screen.3),
+            (0, 0)
+        );
+        assert_eq!(
+            clamp_origin(1900, 1070, 128, 72, screen.0, screen.1, screen.2, screen.3),
+            (1792, 1008)
+        );
+        assert_eq!(
+            clamp_origin(-200, 40, 128, 72, -1920, 0, 1920, 1080),
+            (-200, 40)
+        );
+        assert_eq!(
+            clamp_origin(-2000, 40, 128, 72, -1920, 0, 1920, 1080),
+            (-1920, 40)
+        );
+    }
+
+    #[test]
+    fn resize_keeps_moving_edges_inside_screen() {
+        let (left, top, right, bottom) =
+            clamp_resize_edges("se", 100, 80, 2200, 1400, 0, 0, 1920, 1080);
+        assert_eq!((left, top, right, bottom), (100, 80, 1920, 1080));
+        let (left, top, right, bottom) =
+            clamp_resize_edges("nw", -80, -40, 200, 160, 0, 0, 1920, 1080);
+        assert_eq!((left, top, right, bottom), (0, 0, 200, 160));
+        let (left, top, right, bottom) =
+            clamp_resize_edges("e", 100, 80, 3000, 160, 0, 0, 1920, 1080);
+        assert_eq!((left, top, right, bottom), (100, 80, 1920, 160));
     }
 }
