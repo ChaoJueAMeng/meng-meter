@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <evntrace.h>
 #include <evntcons.h>
+#include <tlhelp32.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -87,9 +88,69 @@ static void fill_props(EVENT_TRACE_PROPERTIES *props, ULONG buf_size) {
     props->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
     props->Wnode.ClientContext = 1;
     props->LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
+    props->BufferSize = 8;
+    props->MinimumBuffers = 4;
+    props->MaximumBuffers = 24;
+    props->FlushTimer = 1;
     props->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
     wcscpy_s((wchar_t *)((BYTE *)props + props->LoggerNameOffset),
              (buf_size - props->LoggerNameOffset) / sizeof(wchar_t), SESSION_NAME);
+}
+
+int fps_is_self_tree(uint32_t pid) {
+    DWORD us = GetCurrentProcessId();
+    DWORD pids[512];
+    DWORD parents[512];
+    PROCESSENTRY32W pe;
+    HANDLE snap;
+    DWORD cur;
+    int n = 0;
+    int i;
+    int step;
+
+    if (pid == 0) {
+        return 0;
+    }
+    if (pid == us) {
+        return 1;
+    }
+
+    snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+    pe.dwSize = sizeof(pe);
+    if (Process32FirstW(snap, &pe)) {
+        do {
+            if (n < 512) {
+                pids[n] = pe.th32ProcessID;
+                parents[n] = pe.th32ParentProcessID;
+                n++;
+            }
+        } while (Process32NextW(snap, &pe));
+    }
+    CloseHandle(snap);
+
+    cur = pid;
+    for (step = 0; step < 10; step++) {
+        DWORD parent = 0;
+        int found = 0;
+        for (i = 0; i < n; i++) {
+            if (pids[i] == cur) {
+                parent = parents[i];
+                found = 1;
+                break;
+            }
+        }
+        if (!found || parent == 0 || parent == cur) {
+            return 0;
+        }
+        if (parent == us) {
+            return 1;
+        }
+        cur = parent;
+    }
+    return 0;
 }
 
 void fps_stop(void) {

@@ -19,6 +19,7 @@ struct Track {
 struct Memory {
     last_pid: u32,
     track: Option<Track>,
+    last_fps: Option<f64>,
 }
 
 struct RefreshCache {
@@ -28,9 +29,10 @@ struct RefreshCache {
 
 pub struct Meter {
     bridge: Arc<Bridge>,
-    thread: Option<JoinHandle<()>>,
-    memory: Mutex<Memory>,
+    memory: Arc<Mutex<Memory>>,
     refresh: Mutex<RefreshCache>,
+    stop: Arc<AtomicBool>,
+    threads: Vec<JoinHandle<()>>,
 }
 
 impl Meter {
@@ -39,23 +41,36 @@ impl Meter {
             counts: Mutex::new(HashMap::new()),
             running: AtomicBool::new(false),
         });
+        let memory = Arc::new(Mutex::new(Memory {
+            last_pid: 0,
+            track: None,
+            last_fps: None,
+        }));
+        let stop = Arc::new(AtomicBool::new(false));
         let raw = Arc::as_ptr(&bridge) as usize;
         let held = Arc::clone(&bridge);
-        let thread = thread::spawn(move || {
+        let etw = thread::spawn(move || {
             let _held = held;
             unsafe { fps_run(on_ready, on_dirty, raw as *mut c_void) };
         });
+        let bridge_s = Arc::clone(&bridge);
+        let memory_s = Arc::clone(&memory);
+        let stop_s = Arc::clone(&stop);
+        let sampler = thread::spawn(move || {
+            while !stop_s.load(Ordering::Relaxed) {
+                thread::sleep(Duration::from_millis(200));
+                sample(&bridge_s, &memory_s);
+            }
+        });
         Self {
             bridge,
-            thread: Some(thread),
-            memory: Mutex::new(Memory {
-                last_pid: 0,
-                track: None,
-            }),
+            memory,
             refresh: Mutex::new(RefreshCache {
                 at: Instant::now() - Duration::from_secs(60),
                 hz: None,
             }),
+            stop,
+            threads: vec![etw, sampler],
         }
     }
 
@@ -63,48 +78,7 @@ impl Meter {
         if !self.bridge.running.load(Ordering::Acquire) {
             return None;
         }
-        let mut memory = self.memory.lock().ok()?;
-        let pid = foreground_pid(&mut memory)?;
-        let count = {
-            let counts = self.bridge.counts.lock().ok()?;
-            counts.get(&pid).copied().unwrap_or(0)
-        };
-        let now = Instant::now();
-        let (prev_count, prev_at) = {
-            let Some(prev) = memory.track.as_ref() else {
-                memory.track = Some(Track {
-                    pid,
-                    count,
-                    at: now,
-                });
-                return None;
-            };
-            if prev.pid != pid {
-                memory.track = Some(Track {
-                    pid,
-                    count,
-                    at: now,
-                });
-                return None;
-            }
-            (prev.count, prev.at)
-        };
-        let dt = now.duration_since(prev_at).as_secs_f64();
-        let delta = count.saturating_sub(prev_count);
-        memory.track = Some(Track {
-            pid,
-            count,
-            at: now,
-        });
-        if !(0.2..5.0).contains(&dt) {
-            return None;
-        }
-        let fps = delta as f64 / dt;
-        if fps > 1000.0 {
-            None
-        } else {
-            Some(fps)
-        }
+        self.memory.lock().ok().and_then(|memory| memory.last_fps)
     }
 
     pub fn refresh_hz(&self) -> Option<f64> {
@@ -120,11 +94,75 @@ impl Meter {
 
 impl Drop for Meter {
     fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
         unsafe { fps_stop() };
-        if let Some(thread) = self.thread.take() {
+        for thread in self.threads.drain(..) {
             let _ = thread.join();
         }
     }
+}
+
+fn sample(bridge: &Bridge, memory: &Mutex<Memory>) {
+    if !bridge.running.load(Ordering::Acquire) {
+        return;
+    }
+    let Ok(mut memory) = memory.lock() else {
+        return;
+    };
+    let Some(pid) = foreground_pid(&mut memory) else {
+        return;
+    };
+    let count = {
+        let Ok(counts) = bridge.counts.lock() else {
+            return;
+        };
+        counts.get(&pid).copied().unwrap_or(0)
+    };
+    let now = Instant::now();
+    let Some(prev) = memory.track.as_ref() else {
+        memory.track = Some(Track {
+            pid,
+            count,
+            at: now,
+        });
+        return;
+    };
+    if prev.pid != pid {
+        memory.track = Some(Track {
+            pid,
+            count,
+            at: now,
+        });
+        return;
+    }
+    let dt = now.duration_since(prev.at).as_secs_f64();
+    let delta = count.saturating_sub(prev.count);
+    // 实时 ETW 要等缓冲区刷出才看得到帧。空档不是 0 帧，窗口继续开着。
+    if delta == 0 {
+        if dt < 1.5 {
+            return;
+        }
+        memory.track = Some(Track {
+            pid,
+            count,
+            at: now,
+        });
+        memory.last_fps = Some(0.0);
+        return;
+    }
+    if dt < 0.45 {
+        return;
+    }
+    memory.track = Some(Track {
+        pid,
+        count,
+        at: now,
+    });
+    let fps = delta as f64 / dt;
+    if fps > 1000.0 {
+        return;
+    }
+    memory.last_fps = Some(fps);
 }
 
 extern "C" fn on_ready(user: *mut c_void) {
@@ -156,7 +194,7 @@ fn foreground_pid(memory: &mut Memory) -> Option<u32> {
     if pid == 0 {
         return None;
     }
-    if pid == std::process::id() {
+    if unsafe { fps_is_self_tree(pid) } != 0 {
         return (memory.last_pid != 0).then_some(memory.last_pid);
     }
     memory.last_pid = pid;
@@ -197,4 +235,5 @@ extern "C" {
         user: *mut c_void,
     ) -> i32;
     fn fps_stop();
+    fn fps_is_self_tree(pid: u32) -> i32;
 }
