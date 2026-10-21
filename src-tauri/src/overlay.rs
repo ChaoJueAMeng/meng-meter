@@ -303,7 +303,7 @@ fn place(app: &AppHandle, kind: &str, geom: &OverlayGeom, visible: bool, locked:
     let (bx, by) = clamp_box_to_screen(&win, geom.x, geom.y, box_w, box_h, false);
     let (x, y) = outer_origin(bx, by, geom.w, scale, locked);
     let (w, h) = outer_size(geom.w, geom.h, locked);
-    sync_page(&win, locked, visible, geom);
+    sync_page(&win, kind, locked, visible, geom);
     let _ = win.set_ignore_cursor_events(locked);
     let _ = win.set_size(LogicalSize::new(w, h));
     let _ = win.set_position(PhysicalPosition::new(x, y));
@@ -316,7 +316,7 @@ fn place(app: &AppHandle, kind: &str, geom: &OverlayGeom, visible: bool, locked:
     }
 }
 
-fn sync_page(win: &WebviewWindow, locked: bool, shown: bool, geom: &OverlayGeom) {
+fn sync_page(win: &WebviewWindow, kind: &str, locked: bool, shown: bool, geom: &OverlayGeom) {
     let mode = if locked { "on" } else { "off" };
     let shown_mode = if shown { "on" } else { "off" };
     let color = if valid_color(&geom.color) {
@@ -325,7 +325,7 @@ fn sync_page(win: &WebviewWindow, locked: bool, shown: bool, geom: &OverlayGeom)
         "#ffffff"
     };
     let _ = win.eval(format!(
-        "document.documentElement.dataset.locked='{mode}';document.documentElement.dataset.shown='{shown_mode}';document.documentElement.style.setProperty('--ink','{color}');document.documentElement.style.setProperty('--fade','{opacity}');document.documentElement.style.setProperty('--box-w','{w}px');document.documentElement.style.setProperty('--box-h','{h}px');",
+        "document.documentElement.dataset.kind='{kind}';document.documentElement.dataset.locked='{mode}';document.documentElement.dataset.shown='{shown_mode}';document.documentElement.style.setProperty('--ink','{color}');document.documentElement.style.setProperty('--fade','{opacity}');document.documentElement.style.setProperty('--box-w','{w}px');document.documentElement.style.setProperty('--box-h','{h}px');",
         opacity = geom.opacity,
         w = geom.w,
         h = geom.h

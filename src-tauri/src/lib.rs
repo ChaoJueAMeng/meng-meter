@@ -42,7 +42,6 @@ struct Drag {
 }
 
 struct FpsMenus {
-    ball: MenuItem<Wry>,
     tray_lock: MenuItem<Wry>,
     ball_lock: MenuItem<Wry>,
     popup: Menu<Wry>,
@@ -74,6 +73,14 @@ struct Stats {
     gpu_c: Option<f64>,
     fps: Option<f64>,
     refresh_hz: Option<f64>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct OverlayReadout {
+    cpu_c: Option<f64>,
+    gpu_c: Option<f64>,
+    fps: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -377,25 +384,6 @@ fn expanded_size(state: &MeterState) -> (f64, f64) {
     (if show_fps(state) { FPS_W } else { NO_FPS_W }, EXP_H)
 }
 
-fn fps_label(show: bool) -> &'static str {
-    if show {
-        "关闭FPS显示"
-    } else {
-        "开启FPS显示"
-    }
-}
-
-fn sync_fps_menus(state: &MeterState) {
-    let label = fps_label(show_fps(state));
-    let Ok(menus) = state.menus.lock() else {
-        return;
-    };
-    let Some(menus) = menus.as_ref() else {
-        return;
-    };
-    let _ = menus.ball.set_text(label);
-}
-
 fn overlay_locked(state: &MeterState) -> bool {
     state
         .settings
@@ -435,7 +423,6 @@ fn publish_settings(
         *guard = settings.clone();
     }
     settings::apply(app, &settings);
-    sync_fps_menus(state);
     sync_lock_menus(state);
     emit_fps_display(app, settings.show_fps);
     let _ = app.emit("overlay-lock", settings.overlay_locked);
@@ -448,33 +435,6 @@ fn emit_fps_display(app: &AppHandle, show: bool) {
         let _ = win.eval(format!("document.documentElement.dataset.fps='{mode}'"));
     }
     let _ = app.emit("fps-display", show);
-}
-
-fn toggle_show_fps(app: &AppHandle, state: &MeterState) {
-    let mut next = state
-        .settings
-        .lock()
-        .ok()
-        .map(|settings| settings.clone())
-        .unwrap_or_default();
-    next.show_fps = !next.show_fps;
-    if settings::save(app, &next).is_err() {
-        return;
-    }
-    if let Ok(mut settings) = state.settings.lock() {
-        *settings = next.clone();
-    }
-    sync_fps_menus(state);
-    emit_fps_display(app, next.show_fps);
-    if next.floating {
-        let expanded = state
-            .expanded
-            .lock()
-            .ok()
-            .map(|expanded| *expanded)
-            .unwrap_or(true);
-        apply_mode(app, state, expanded);
-    }
 }
 
 fn menu_anchor(win: &WebviewWindow) -> Option<LogicalPosition<f64>> {
@@ -805,6 +765,31 @@ fn apply_hover(app: &AppHandle, state: &MeterState, hover: bool) {
             apply_mode(&app3, &st, false);
             save_layout(&app3, &st);
         });
+    });
+}
+
+fn overlay_readout(state: &MeterState) -> OverlayReadout {
+    let cpu_c = {
+        let mut cpu = state.cpu.lock().unwrap();
+        if cpu.is_none() {
+            *cpu = cputemp::Probe::open();
+        }
+        cpu.as_ref().and_then(|probe| probe.celsius())
+    };
+    OverlayReadout {
+        cpu_c,
+        gpu_c: gpu::selected_celsius(),
+        fps: state.fps.lock().ok().and_then(|meter| meter.frames_per_sec()),
+    }
+}
+
+fn spawn_overlay_pump(app: AppHandle) {
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_millis(500));
+            let readout = overlay_readout(&app.state::<MeterState>());
+            let _ = app.emit("overlay-stats", readout);
+        }
     });
 }
 
@@ -1233,20 +1218,16 @@ pub fn run() {
                 *g = loaded.clone();
             }
 
-            let label = fps_label(loaded.show_fps);
             let lock = lock_label(loaded.overlay_locked);
             let settings_item = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let tray_lock = MenuItem::with_id(app, "overlay-lock", lock, true, None::<&str>)?;
             let ball_settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
             let ball_quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let ball_fps = MenuItem::with_id(app, "fps", label, true, None::<&str>)?;
             let ball_lock = MenuItem::with_id(app, "overlay-lock", lock, true, None::<&str>)?;
-            let popup =
-                Menu::with_items(app, &[&ball_settings, &ball_fps, &ball_lock, &ball_quit])?;
+            let popup = Menu::with_items(app, &[&ball_settings, &ball_lock, &ball_quit])?;
             if let Ok(mut menus) = app.state::<MeterState>().menus.lock() {
                 *menus = Some(FpsMenus {
-                    ball: ball_fps,
                     tray_lock: tray_lock.clone(),
                     ball_lock,
                     popup,
@@ -1278,13 +1259,6 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "quit" => app.exit(0),
                     "settings" => open_settings(app),
-                    "fps" => {
-                        let handle = app.clone();
-                        thread::spawn(move || {
-                            let st = handle.state::<MeterState>();
-                            toggle_show_fps(&handle, &st);
-                        });
-                    }
                     "overlay-lock" => {
                         let handle = app.clone();
                         thread::spawn(move || {
@@ -1321,6 +1295,7 @@ pub fn run() {
             }
 
             spawn_hover_watcher(app.handle().clone());
+            spawn_overlay_pump(app.handle().clone());
             gpu::spawn();
             taskbar::spawn(app.handle().clone());
 

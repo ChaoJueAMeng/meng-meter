@@ -3,16 +3,18 @@ function api() {
 }
 
 function kindOf() {
+  const query = new URLSearchParams(location.search).get("kind");
+  if (query === "gpu" || query === "fps" || query === "cpu") return query;
+  const data = document.documentElement.dataset.kind;
+  if (data === "gpu" || data === "fps" || data === "cpu") return data;
   try {
-    const label = api().window.getCurrentWindow().label;
+    const label = String(api().window.getCurrentWindow().label || "");
     if (label.endsWith("-gpu")) return "gpu";
     if (label.endsWith("-fps")) return "fps";
     if (label.endsWith("-cpu")) return "cpu";
   } catch (err) {
     console.error(err);
   }
-  const query = new URLSearchParams(location.search).get("kind");
-  if (query === "gpu" || query === "fps" || query === "cpu") return query;
   return "cpu";
 }
 
@@ -50,12 +52,20 @@ function setShown(shown, animate) {
 function render(kind, stats) {
   const value = document.getElementById("value");
   if (kind === "fps") {
-    const fps = Number(stats.fps);
-    value.textContent = Number.isFinite(fps) ? String(Math.round(fps)) : "--";
+    const fps = stats.fps;
+    if (fps == null || !Number.isFinite(Number(fps))) {
+      value.textContent = "--";
+      return;
+    }
+    value.textContent = String(Math.round(Math.max(0, Number(fps))));
     return;
   }
-  const celsius = Number(kind === "gpu" ? stats.gpuC : stats.cpuC);
-  value.textContent = Number.isFinite(celsius) ? `${Math.round(celsius)}℃` : "--";
+  const celsius = kind === "gpu" ? stats.gpuC : stats.cpuC;
+  if (celsius == null || !Number.isFinite(Number(celsius))) {
+    value.textContent = "--";
+    return;
+  }
+  value.textContent = `${Math.round(Number(celsius))}℃`;
 }
 
 async function boot() {
@@ -86,15 +96,16 @@ async function boot() {
     console.error(err);
   }
 
-  async function poll() {
-    try {
-      render(kind, await invoke("get_stats"));
-    } catch (err) {
-      console.error(err);
-    }
+  function paint(stats) {
+    render(kind, stats || {});
   }
-  await poll();
-  setInterval(poll, 1000);
+
+  await listen("overlay-stats", (event) => paint(event.payload));
+  try {
+    paint(await invoke("get_stats"));
+  } catch (err) {
+    console.error(err);
+  }
 
   const frame = document.getElementById("frame");
   frame.addEventListener("pointerdown", (event) => {
