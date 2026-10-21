@@ -1,6 +1,6 @@
 [package]
 name = "meng-meter"
-version = "0.3.1"
+version = "0.3.2"
 description = "Meng meter floating memory and network widget"
 authors = ["you"]
 edition = "2021"
