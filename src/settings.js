@@ -12,9 +12,12 @@ function readForm() {
     taskbarGpu: document.getElementById("taskbarGpu").checked,
     gpuId: document.getElementById("gpuId").value,
     overlayLocked: document.getElementById("overlayLocked").checked,
+    overlayVisible: document.getElementById("overlayVisible").checked,
     overlayCpu: document.getElementById("overlayCpu").checked,
     overlayGpu: document.getElementById("overlayGpu").checked,
     overlayFps: document.getElementById("overlayFps").checked,
+    logEnabled: document.getElementById("logEnabled").checked,
+    logKeepDays: Number(document.getElementById("logKeepDays").value) === 30 ? 30 : 7,
   };
 }
 
@@ -56,6 +59,12 @@ function syncDependent() {
   const fpsRow = document.getElementById("fpsRow");
   fps.disabled = !floatingOn;
   fpsRow.classList.toggle("is-disabled", !floatingOn);
+
+  const logOn = document.getElementById("logEnabled").checked;
+  const keep = document.getElementById("logKeepDays");
+  const keepRow = document.getElementById("logKeepRow");
+  keep.disabled = !logOn;
+  keepRow.classList.toggle("is-disabled", !logOn);
 }
 
 function fillForm(settings, gpus) {
@@ -68,6 +77,9 @@ function fillForm(settings, gpus) {
   document.getElementById("overlayGpu").checked = Boolean(settings.overlayGpu);
   document.getElementById("overlayFps").checked = Boolean(settings.overlayFps);
   document.getElementById("overlayLocked").checked = settings.overlayLocked !== false;
+  document.getElementById("overlayVisible").checked = settings.overlayVisible !== false;
+  document.getElementById("logEnabled").checked = settings.logEnabled !== false;
+  document.getElementById("logKeepDays").value = Number(settings.logKeepDays) === 30 ? "30" : "7";
   fillGpus(gpus, settings.gpuId || "");
   setHero(Boolean(settings.configured));
   syncDependent();
@@ -143,6 +155,11 @@ async function boot() {
     document.getElementById("overlayLocked").checked = Boolean(event.payload);
     applying = false;
   });
+  await listen("overlay-visible", (event) => {
+    applying = true;
+    document.getElementById("overlayVisible").checked = Boolean(event.payload);
+    applying = false;
+  });
   await listen("overlay-shown", (event) => {
     const kind = event.payload?.kind;
     const id = { cpu: "overlayCpu", gpu: "overlayGpu", fps: "overlayFps" }[kind];
@@ -165,6 +182,9 @@ async function boot() {
     "overlayGpu",
     "overlayFps",
     "overlayLocked",
+    "overlayVisible",
+    "logEnabled",
+    "logKeepDays",
   ]) {
     document.getElementById(id).addEventListener("change", () => {
       syncDependent();
@@ -173,6 +193,10 @@ async function boot() {
   }
 
   syncDependent();
+
+  document.getElementById("openLogDir").addEventListener("click", () => {
+    invoke("open_log_dir").catch((err) => console.error(err));
+  });
 
   document.addEventListener("contextmenu", (event) => event.preventDefault());
   window.addEventListener("focus", () => {
@@ -200,4 +224,5 @@ async function boot() {
 
 syncDependent();
 document.getElementById("floating").addEventListener("change", syncDependent);
+document.getElementById("logEnabled").addEventListener("change", syncDependent);
 boot();

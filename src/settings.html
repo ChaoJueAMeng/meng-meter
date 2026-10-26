@@ -30,7 +30,7 @@
             <div class="row">
               <span class="copy">
                 <strong>显卡</strong>
-                <small>未手动选择时使用独立显卡</small>
+                <small>显示显卡温度</small>
               </span>
               <select id="gpuId" aria-label="显卡">
                 <option value="">自动（独显）</option>
@@ -79,6 +79,13 @@
         <section>
           <h2>悬浮组件</h2>
           <div class="card">
+            <label class="row">
+              <span class="copy">
+                <strong>显示悬浮组件</strong>
+                <small>关闭后全部隐藏，再次打开时恢复已保存的组件</small>
+              </span>
+              <input class="switch" type="checkbox" id="overlayVisible" checked />
+            </label>
             <div class="chips" role="group" aria-label="悬浮组件">
               <label class="chip" title="在桌面上单独显示 CPU 温度">
                 <input type="checkbox" id="overlayCpu" />
@@ -100,6 +107,32 @@
               </span>
               <input class="switch" type="checkbox" id="overlayLocked" checked />
             </label>
+          </div>
+        </section>
+
+        <section>
+          <h2>日志</h2>
+          <div class="card">
+            <label class="row">
+              <span class="copy">
+                <strong>自动记录</strong>
+                <small>记录内存、网速和 CPU / 显卡温度，不记录帧率</small>
+              </span>
+              <input class="switch" type="checkbox" id="logEnabled" checked />
+            </label>
+            <div class="row" id="logKeepRow">
+              <span class="copy">
+                <strong>保留时间</strong>
+                <small>过期日志自动删除</small>
+              </span>
+              <select id="logKeepDays" aria-label="保留时间">
+                <option value="7" selected>近 7 天</option>
+                <option value="30">近一个月</option>
+              </select>
+            </div>
+            <div class="log-actions">
+              <button id="openLogDir" class="text-btn" type="button">打开日志文件夹</button>
+            </div>
           </div>
         </section>
       </div>

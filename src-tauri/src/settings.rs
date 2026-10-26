@@ -21,16 +21,34 @@ pub struct Settings {
     pub gpu_id: String,
     #[serde(default = "enabled")]
     pub overlay_locked: bool,
+    #[serde(default = "enabled")]
+    pub overlay_visible: bool,
     #[serde(default)]
     pub overlay_cpu: bool,
     #[serde(default)]
     pub overlay_gpu: bool,
     #[serde(default)]
     pub overlay_fps: bool,
+    #[serde(default = "enabled")]
+    pub log_enabled: bool,
+    #[serde(default = "keep_week")]
+    pub log_keep_days: u16,
 }
 
 fn enabled() -> bool {
     true
+}
+
+fn keep_week() -> u16 {
+    7
+}
+
+pub(crate) fn normalize_keep_days(days: u16) -> u16 {
+    if days == 30 {
+        30
+    } else {
+        7
+    }
 }
 
 impl Default for Settings {
@@ -44,9 +62,12 @@ impl Default for Settings {
             taskbar_gpu: true,
             gpu_id: String::new(),
             overlay_locked: true,
+            overlay_visible: true,
             overlay_cpu: false,
             overlay_gpu: false,
             overlay_fps: false,
+            log_enabled: true,
+            log_keep_days: 7,
         }
     }
 }
@@ -60,10 +81,12 @@ pub fn load(app: &AppHandle) -> Settings {
     let Some(path) = path(app) else {
         return Settings::default();
     };
-    fs::read(path)
+    let mut settings: Settings = fs::read(path)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    settings.log_keep_days = normalize_keep_days(settings.log_keep_days);
+    settings
 }
 
 pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
@@ -81,6 +104,7 @@ pub fn apply(app: &AppHandle, settings: &Settings) {
     crate::gpu::set_prefer(settings.gpu_id.clone());
     crate::taskbar::set_sources(settings.taskbar_temp, settings.taskbar_gpu);
     crate::overlay::apply(app, settings);
+    let _ = crate::journal::prune(app, settings.log_keep_days);
 }
 
 fn apply_floating(app: &AppHandle, enabled: bool) {

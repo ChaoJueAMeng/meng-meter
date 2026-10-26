@@ -10,6 +10,7 @@ commands.allow = [
   "get_settings",
   "save_settings",
   "close_settings",
+  "open_log_dir",
   "open_ball_menu",
   "list_gpus",
   "get_overlay",
@@ -17,5 +18,6 @@ commands.allow = [
   "overlay_begin_drag",
   "overlay_begin_resize",
   "set_overlay_locked",
-  "set_overlay_shown"
+  "set_overlay_shown",
+  "set_overlay_visible"
 ]

@@ -130,6 +130,7 @@ label.row {
 }
 
 .row + .row,
+.row + .chips,
 .chips + .row {
   border-top: 1px solid var(--line);
 }
@@ -335,4 +336,24 @@ button:disabled {
   opacity: 0.55;
   cursor: default;
   filter: none;
+}
+
+.log-actions {
+  border-top: 1px solid var(--line);
+  padding: 10px 14px 12px;
+}
+
+button.text-btn {
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+button.text-btn:hover {
+  filter: none;
+  border-color: var(--accent);
+  background: rgba(37, 99, 235, 0.08);
 }

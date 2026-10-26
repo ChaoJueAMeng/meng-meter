@@ -58,12 +58,14 @@ pub struct OverlayView {
 pub fn apply(app: &AppHandle, settings: &Settings) {
     LOCKED.store(settings.overlay_locked, Ordering::SeqCst);
     let file = file(app).clone();
+    let present = settings.overlay_visible;
     place(
         app,
         "cpu",
         &file.cpu,
         settings.overlay_cpu,
         settings.overlay_locked,
+        present,
     );
     place(
         app,
@@ -71,6 +73,7 @@ pub fn apply(app: &AppHandle, settings: &Settings) {
         &file.gpu,
         settings.overlay_gpu,
         settings.overlay_locked,
+        present,
     );
     place(
         app,
@@ -78,8 +81,9 @@ pub fn apply(app: &AppHandle, settings: &Settings) {
         &file.fps,
         settings.overlay_fps,
         settings.overlay_locked,
+        present,
     );
-    place_lock_button(app, settings.overlay_locked);
+    place_lock_button(app, settings.overlay_locked || !present);
 }
 
 pub fn view(app: &AppHandle, kind: &str, locked: bool, shown: bool) -> Option<OverlayView> {
@@ -293,7 +297,18 @@ impl Drop for DragGuard {
     }
 }
 
-fn place(app: &AppHandle, kind: &str, geom: &OverlayGeom, visible: bool, locked: bool) {
+fn on_screen(saved: bool, locked: bool, present: bool) -> bool {
+    present && (saved || !locked)
+}
+
+fn place(
+    app: &AppHandle,
+    kind: &str,
+    geom: &OverlayGeom,
+    visible: bool,
+    locked: bool,
+    present: bool,
+) {
     let Some(win) = window(app, kind) else {
         return;
     };
@@ -304,10 +319,10 @@ fn place(app: &AppHandle, kind: &str, geom: &OverlayGeom, visible: bool, locked:
     let (x, y) = outer_origin(bx, by, geom.w, scale, locked);
     let (w, h) = outer_size(geom.w, geom.h, locked);
     sync_page(&win, kind, locked, visible, geom);
-    let _ = win.set_ignore_cursor_events(locked);
+    let _ = win.set_ignore_cursor_events(locked || !present);
     let _ = win.set_size(LogicalSize::new(w, h));
     let _ = win.set_position(PhysicalPosition::new(x, y));
-    if visible || !locked {
+    if on_screen(visible, locked, present) {
         let _ = win.set_background_color(Some(Color(0, 0, 0, 0)));
         let _ = win.show();
         let _ = win.set_always_on_top(true);
@@ -674,8 +689,19 @@ fn valid_color(color: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        clamp_origin, clamp_resize_edges, frame_left, outer_size, BAR, MIN_W, PAD, TOOLBAR_MIN_W,
+        clamp_origin, clamp_resize_edges, frame_left, on_screen, outer_size, BAR, MIN_W, PAD,
+        TOOLBAR_MIN_W,
     };
+
+    #[test]
+    fn master_hide_keeps_saved_components_off_screen() {
+        assert!(!on_screen(true, true, false));
+        assert!(!on_screen(true, false, false));
+        assert!(!on_screen(false, false, false));
+        assert!(on_screen(true, true, true));
+        assert!(on_screen(false, false, true));
+        assert!(!on_screen(false, true, true));
+    }
 
     #[test]
     fn narrow_frame_stays_narrow() {

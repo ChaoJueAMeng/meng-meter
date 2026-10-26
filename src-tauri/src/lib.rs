@@ -16,6 +16,7 @@ use tauri::{
 mod fps;
 mod gpu;
 mod instance;
+mod journal;
 mod overlay;
 mod settings;
 mod taskbar;
@@ -44,6 +45,8 @@ struct Drag {
 struct FpsMenus {
     tray_lock: MenuItem<Wry>,
     ball_lock: MenuItem<Wry>,
+    tray_visible: MenuItem<Wry>,
+    ball_visible: MenuItem<Wry>,
     popup: Menu<Wry>,
 }
 
@@ -304,6 +307,32 @@ mod cputemp {
     pub use platform::Probe;
 }
 
+pub(crate) struct HostReading {
+    mem_percent: f64,
+    cpu_c: Option<f64>,
+    gpu_c: Option<f64>,
+}
+
+pub(crate) fn host_reading(app: &AppHandle) -> Option<HostReading> {
+    let state = app.state::<MeterState>();
+    let mem_percent = {
+        let mut sys = state.sys.lock().ok()?;
+        memory_percent(&mut sys)
+    };
+    let cpu_c = {
+        let mut cpu = state.cpu.lock().ok()?;
+        if cpu.is_none() {
+            *cpu = cputemp::Probe::open();
+        }
+        cpu.as_ref().and_then(|probe| probe.celsius())
+    };
+    Some(HostReading {
+        mem_percent,
+        cpu_c,
+        gpu_c: gpu::selected_celsius(),
+    })
+}
+
 fn memory_percent(sys: &mut System) -> f64 {
     sys.refresh_memory();
     let total = sys.total_memory() as f64;
@@ -315,7 +344,7 @@ fn memory_percent(sys: &mut System) -> f64 {
     }
 }
 
-fn skip_iface(name: &str) -> bool {
+pub(crate) fn skip_iface(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     n.contains("loopback")
         || n.contains("teredo")
@@ -401,16 +430,36 @@ fn lock_label(locked: bool) -> &'static str {
     }
 }
 
-fn sync_lock_menus(state: &MeterState) {
-    let label = lock_label(overlay_locked(state));
+fn overlay_visible(state: &MeterState) -> bool {
+    state
+        .settings
+        .lock()
+        .ok()
+        .map(|settings| settings.overlay_visible)
+        .unwrap_or(true)
+}
+
+fn visible_label(visible: bool) -> &'static str {
+    if visible {
+        "隐藏悬浮组件"
+    } else {
+        "显示悬浮组件"
+    }
+}
+
+fn sync_overlay_menus(state: &MeterState) {
+    let lock = lock_label(overlay_locked(state));
+    let visible = visible_label(overlay_visible(state));
     let Ok(menus) = state.menus.lock() else {
         return;
     };
     let Some(menus) = menus.as_ref() else {
         return;
     };
-    let _ = menus.tray_lock.set_text(label);
-    let _ = menus.ball_lock.set_text(label);
+    let _ = menus.tray_lock.set_text(lock);
+    let _ = menus.ball_lock.set_text(lock);
+    let _ = menus.tray_visible.set_text(visible);
+    let _ = menus.ball_visible.set_text(visible);
 }
 
 fn publish_settings(
@@ -423,9 +472,10 @@ fn publish_settings(
         *guard = settings.clone();
     }
     settings::apply(app, &settings);
-    sync_lock_menus(state);
+    sync_overlay_menus(state);
     emit_fps_display(app, settings.show_fps);
     let _ = app.emit("overlay-lock", settings.overlay_locked);
+    let _ = app.emit("overlay-visible", settings.overlay_visible);
     Ok(())
 }
 
@@ -779,17 +829,19 @@ fn overlay_readout(state: &MeterState) -> OverlayReadout {
     OverlayReadout {
         cpu_c,
         gpu_c: gpu::selected_celsius(),
-        fps: state.fps.lock().ok().and_then(|meter| meter.frames_per_sec()),
+        fps: state
+            .fps
+            .lock()
+            .ok()
+            .and_then(|meter| meter.frames_per_sec()),
     }
 }
 
 fn spawn_overlay_pump(app: AppHandle) {
-    thread::spawn(move || {
-        loop {
-            thread::sleep(Duration::from_millis(500));
-            let readout = overlay_readout(&app.state::<MeterState>());
-            let _ = app.emit("overlay-stats", readout);
-        }
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(500));
+        let readout = overlay_readout(&app.state::<MeterState>());
+        let _ = app.emit("overlay-stats", readout);
     });
 }
 
@@ -970,6 +1022,7 @@ fn save_settings(
     mut settings: settings::Settings,
 ) -> Result<settings::Settings, String> {
     settings.configured = true;
+    settings.log_keep_days = settings::normalize_keep_days(settings.log_keep_days);
     publish_settings(&app, &state, settings.clone())?;
     if settings.floating {
         apply_mode(&app, &state, true);
@@ -992,6 +1045,11 @@ fn close_settings(app: AppHandle, state: State<MeterState>) {
         apply_mode(&app, &state, true);
         maybe_collapse_later(app.clone());
     }
+}
+
+#[tauri::command]
+fn open_log_dir(app: AppHandle) -> Result<(), String> {
+    journal::open_dir(&app)
 }
 
 #[tauri::command]
@@ -1053,9 +1111,27 @@ fn set_overlay_locked(
     if let Ok(mut guard) = state.settings.lock() {
         *guard = next.clone();
     }
-    sync_lock_menus(&state);
+    sync_overlay_menus(&state);
     overlay::apply(&app, &next);
     let _ = app.emit("overlay-lock", next.overlay_locked);
+    Ok(())
+}
+
+#[tauri::command]
+fn set_overlay_visible(
+    app: AppHandle,
+    state: State<MeterState>,
+    visible: bool,
+) -> Result<(), String> {
+    let mut next = state.settings.lock().map(|g| g.clone()).unwrap_or_default();
+    next.overlay_visible = visible;
+    settings::save(&app, &next)?;
+    if let Ok(mut guard) = state.settings.lock() {
+        *guard = next.clone();
+    }
+    sync_overlay_menus(&state);
+    overlay::apply(&app, &next);
+    let _ = app.emit("overlay-visible", next.overlay_visible);
     Ok(())
 }
 
@@ -1203,6 +1279,7 @@ pub fn run() {
             get_settings,
             save_settings,
             close_settings,
+            open_log_dir,
             open_ball_menu,
             list_gpus,
             get_overlay,
@@ -1210,7 +1287,8 @@ pub fn run() {
             overlay_begin_drag,
             overlay_begin_resize,
             set_overlay_locked,
-            set_overlay_shown
+            set_overlay_shown,
+            set_overlay_visible
         ])
         .setup(|app| {
             let loaded = settings::load(app.handle());
@@ -1219,21 +1297,31 @@ pub fn run() {
             }
 
             let lock = lock_label(loaded.overlay_locked);
+            let visible = visible_label(loaded.overlay_visible);
             let settings_item = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let tray_visible =
+                MenuItem::with_id(app, "overlay-visible", visible, true, None::<&str>)?;
             let tray_lock = MenuItem::with_id(app, "overlay-lock", lock, true, None::<&str>)?;
             let ball_settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
             let ball_quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let ball_visible =
+                MenuItem::with_id(app, "overlay-visible", visible, true, None::<&str>)?;
             let ball_lock = MenuItem::with_id(app, "overlay-lock", lock, true, None::<&str>)?;
-            let popup = Menu::with_items(app, &[&ball_settings, &ball_lock, &ball_quit])?;
+            let popup = Menu::with_items(
+                app,
+                &[&ball_settings, &ball_visible, &ball_lock, &ball_quit],
+            )?;
             if let Ok(mut menus) = app.state::<MeterState>().menus.lock() {
                 *menus = Some(FpsMenus {
                     tray_lock: tray_lock.clone(),
                     ball_lock,
+                    tray_visible: tray_visible.clone(),
+                    ball_visible,
                     popup,
                 });
             }
-            let menu = Menu::with_items(app, &[&settings_item, &tray_lock, &quit])?;
+            let menu = Menu::with_items(app, &[&settings_item, &tray_visible, &tray_lock, &quit])?;
             let percent = app
                 .state::<MeterState>()
                 .sys
@@ -1267,6 +1355,14 @@ pub fn run() {
                             let _ = set_overlay_locked(handle.clone(), st, !locked);
                         });
                     }
+                    "overlay-visible" => {
+                        let handle = app.clone();
+                        thread::spawn(move || {
+                            let st = handle.state::<MeterState>();
+                            let visible = overlay_visible(&st);
+                            let _ = set_overlay_visible(handle.clone(), st, !visible);
+                        });
+                    }
                     _ => {}
                 })
                 .build(app);
@@ -1296,6 +1392,7 @@ pub fn run() {
 
             spawn_hover_watcher(app.handle().clone());
             spawn_overlay_pump(app.handle().clone());
+            journal::spawn(app.handle().clone());
             gpu::spawn();
             taskbar::spawn(app.handle().clone());
 
